@@ -406,6 +406,7 @@ const [aiTone, setAiTone] = useState<Tone>("casual");
   const [imageGenLoading, setImageGenLoading] = useState(false);
   const [titleError, setTitleError] = useState(false);
   const [contentError, setContentError] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -730,22 +731,29 @@ syncContentFromEditor();
   };
 
   const handleSubmit = async () => {
+    if (isSubmitting || isLoading) return;
+
     const hasTitle = title.trim().length > 0;
     const hasContent = content.trim().length > 0;
     setTitleError(!hasTitle);
     setContentError(!hasContent);
     if (!hasTitle || !hasContent) return;
 
-    await onSubmit({
-      title: title.trim(),
-      content: content.trim(),
-      author: author.trim() || "Anonymous",
-      imageUrl: imageUrl.trim() || undefined,
-      tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
-    });
+    setIsSubmitting(true);
+    try {
+      await onSubmit({
+        title: title.trim(),
+        content: content.trim(),
+        author: author.trim() || "Anonymous",
+        imageUrl: imageUrl.trim() || undefined,
+        tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+      });
 
-    handleReset();
-    onClose();
+      handleReset();
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleReset = () => {
@@ -1261,7 +1269,7 @@ syncContentFromEditor();
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={isLoading}
+              disabled={isSubmitting || isLoading}
               className="px-6 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50 transition-colors text-[15px] font-medium shadow-sm"
             >
               {isLoading ? (

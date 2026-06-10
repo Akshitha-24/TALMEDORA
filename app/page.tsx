@@ -8,11 +8,17 @@ import { CreatePostInput } from '@/types/post';
 
 export default function HomePage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const { posts, loading, error, refresh, createPost } = usePosts();
 
   const handleCreatePost = async (postData: CreatePostInput) => {
-    await createPost(postData);
-    setIsModalOpen(false);
+    setIsCreating(true);
+    try {
+      await createPost(postData);
+      setIsModalOpen(false);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   return (
@@ -72,6 +78,7 @@ export default function HomePage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleCreatePost}
+        isLoading={isCreating}
       />
     </div>
   );
