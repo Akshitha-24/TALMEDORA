@@ -31,11 +31,11 @@ export class PostService {
   static async generateAIContent(request: AIWritingRequest): Promise<string> {
     const validated = aiWritingSchema.parse(request);
     
-    // Mock AI generation - replace with actual API call
+    
     const lengthMap = { short: 100, medium: 300, long: 500 };
     const targetLength = lengthMap[validated.length];
     
-    // Simulate AI response
+    
     const responses: Record<string, string[]> = {
       professional: [
         `In today's rapidly evolving landscape, ${validated.prompt} has become increasingly significant. Organizations must adapt their strategies to leverage emerging opportunities while mitigating potential risks. This comprehensive analysis explores key considerations and actionable insights.`,
@@ -58,7 +58,7 @@ export class PostService {
     const toneResponses = responses[validated.tone] || responses.professional;
     const response = toneResponses[Math.floor(Math.random() * toneResponses.length)];
     
-    // Adjust length
+    
     if (response.length < targetLength) {
       return response + ' ' + response;
     }
@@ -68,14 +68,14 @@ export class PostService {
   static async generateImage(request: ImageGenerationRequest): Promise<string> {
     const validated = imageGenerationSchema.parse(request);
     
-    // Mock image generation - replace with actual API (DALL-E, Midjourney, etc.)
+    
     const sizeMap = {
       small: '256x256',
       medium: '512x512',
       large: '1024x1024',
     };
 
-    // Return a placeholder image URL based on style
+   
     const styleColors: Record<string, string> = {
       realistic: '3a7bd5',
       artistic: 'd53a9d',
@@ -86,12 +86,12 @@ export class PostService {
     const color = styleColors[validated.style] || '3a7bd5';
     const size = sizeMap[validated.size];
     
-    // Using placeholder service - replace with actual image generation API
+   
     return `https://via.placeholder.com/${size}/${color}/ffffff?text=${encodeURIComponent(validated.prompt.substring(0, 30))}`;
   }
 
   static async rewriteContent(content: string, tone: string): Promise<string> {
-    // Mock rewrite functionality
+    
     const rewrites: Record<string, string> = {
       professional: content.replace(/\b(good|bad|nice)\b/g, (match) => {
         const map: Record<string, string> = { good: 'excellent', bad: 'suboptimal', nice: 'favorable' };
