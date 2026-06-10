@@ -907,7 +907,7 @@ syncContentFromEditor();
                         type="button"
                         onClick={handleRewriteAI}
                         disabled={rewriteLoading || !content.trim()}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition-colors text-sm disabled:opacity-50"
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 shadow-sm transition-colors text-sm disabled:opacity-50"
                       >
                         <Sparkles className="w-4 h-4 text-purple-500" />
                         {rewriteLoading ? "Rewriting..." : "Rewrite with AI"}
@@ -915,7 +915,7 @@ syncContentFromEditor();
                       <button
                         type="button"
                         onClick={() => setShowAiPanel(!showAiPanel)}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition-colors text-sm"
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 shadow-sm transition-colors text-sm"
                       >
                         <Sparkles className="w-4 h-4 text-indigo-500" />
                         Write with AI
@@ -970,7 +970,7 @@ syncContentFromEditor();
                             type="button"
                             onClick={handleGenerateAI}
                             disabled={aiLoading || !aiPrompt.trim()}
-                            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                            className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50 transition-colors"
                           >
                             {aiLoading ? "Generating..." : "Generate"}
                           </button>
@@ -1068,7 +1068,7 @@ syncContentFromEditor();
                       <button
                         type="button"
                         onClick={() => document.getElementById("cover-image-input")?.click()}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition-colors text-sm"
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 shadow-sm transition-colors text-sm"
                       >
                         <Upload className="w-4 h-4 text-green-500" />
                         Upload from computer
@@ -1076,7 +1076,7 @@ syncContentFromEditor();
                       <button
                         type="button"
                         onClick={() => setShowImagePanel(!showImagePanel)}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition-colors text-sm"
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 shadow-sm transition-colors text-sm"
                       >
                         <Image className="w-4 h-4 text-purple-500" />
                         Generate Image
@@ -1128,7 +1128,7 @@ syncContentFromEditor();
                             type="button"
                             onClick={handleGenerateImage}
                             disabled={imageGenLoading || !imagePrompt.trim()}
-                            className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                            className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50 transition-colors"
                           >
                             {imageGenLoading ? "Generating..." : "Generate"}
                           </button>
@@ -1175,7 +1175,7 @@ syncContentFromEditor();
                               setImageLoaded(false);
                               setRetryKey((k) => k + 1);
                             }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors shadow-sm"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-red-50 border border-red-200 rounded-lg text-red-600 hover:bg-red-100 transition-colors shadow-sm"
                           >
                             <RefreshCw className="w-3 h-3" />
                             Try again
@@ -1262,7 +1262,7 @@ syncContentFromEditor();
               type="button"
               onClick={handleSubmit}
               disabled={isLoading}
-              className="px-6 py-2.5 bg-indigo-700 text-white rounded-xl hover:bg-indigo-800 disabled:opacity-50 transition-colors text-[15px] font-medium shadow-sm"
+              className="px-6 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50 transition-colors text-[15px] font-medium shadow-sm"
             >
               {isLoading ? (
                 <span className="inline-flex items-center gap-2">

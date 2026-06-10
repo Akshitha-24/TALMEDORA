@@ -23,7 +23,7 @@ export default function HomePage() {
             <h1 className="text-2xl font-bold text-indigo-600">TALMedora</h1>
             <button
               onClick={() => setIsModalOpen(true)}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
             >
               Create Post
             </button>
@@ -44,7 +44,7 @@ export default function HomePage() {
         ) : error ? (
           <div className="text-center py-12">
             <p className="text-red-600 mb-4">{error}</p>
-            <button onClick={refresh} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+            <button onClick={refresh} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">
               Try Again
             </button>
           </div>
@@ -54,7 +54,7 @@ export default function HomePage() {
             <p className="text-gray-500 mb-4">Be the first to share your story!</p>
             <button
               onClick={() => setIsModalOpen(true)}
-              className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+              className="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
             >
               Create First Post
             </button>
