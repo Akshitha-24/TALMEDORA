@@ -1,5 +1,29 @@
 import type { CreatePostInput } from "@/types/post";
-import { Image, RefreshCw, Sparkles, Upload, X } from "lucide-react";
+import {
+  AtSign,
+  BarChart3,
+  Braces,
+  Calendar,
+  ChevronDown,
+  Clock,
+  FileText,
+  Globe,
+  Image,
+  Link,
+  Link2,
+  List,
+  ListOrdered,
+  MapPin,
+  Minus,
+  Plus,
+  Redo2,
+  RefreshCw,
+  Sigma,
+  Sparkles,
+  Undo2,
+  Video,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -23,6 +47,8 @@ type FormatAction =
 
 type Tone = "professional" | "casual" | "creative" | "formal";
 type Length = "short" | "medium" | "long";
+type MediaComposer = "poll" | "event" | null;
+type EventType = "in-person" | "virtual" | "hybrid";
 
 const formatMap: Record<
   FormatAction,
@@ -382,8 +408,6 @@ export default function CreatePostModal({
   isLoading,
 }: CreatePostModalProps) {
   const [activeTab, setActiveTab] = useState<"write" | "preview">("write");
-  const [title, setTitle] = useState("");
-  const [author, setAuthor] = useState("");
   const [content, setContent] = useState("");
   const [tags, setTags] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -404,12 +428,24 @@ const [aiTone, setAiTone] = useState<Tone>("casual");
   const [imageStyle, setImageStyle] = useState<"realistic" | "artistic" | "minimal" | "vibrant">("realistic");
   const [imageSize, setImageSize] = useState<"small" | "medium" | "large">("medium");
   const [imageGenLoading, setImageGenLoading] = useState(false);
-  const [titleError, setTitleError] = useState(false);
   const [contentError, setContentError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showTextToolbar, setShowTextToolbar] = useState(false);
+  const [activeMediaComposer, setActiveMediaComposer] = useState<MediaComposer>(null);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState(["", ""]);
+  const [pollDuration, setPollDuration] = useState("1 week");
+  const [eventName, setEventName] = useState("");
+  const [eventType, setEventType] = useState<EventType>("in-person");
+  const [eventDate, setEventDate] = useState("");
+  const [eventTime, setEventTime] = useState("");
+  const [eventLocation, setEventLocation] = useState("");
+  const [eventLink, setEventLink] = useState("");
 
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
   const savedSelection = useRef<Range | null>(null);
   const imageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -558,8 +594,40 @@ syncContentFromEditor();
     insertNodeAtSelection(br);
   };
 
+  const insertVideoAtCursor = (src: string) => {
+    const video = document.createElement("video");
+    video.src = src;
+    video.controls = true;
+    video.className = "max-w-full rounded-xl my-2 block bg-black";
+    video.setAttribute("contenteditable", "false");
+    insertNodeAtSelection(video);
+    const br = document.createElement("br");
+    insertNodeAtSelection(br);
+  };
+
+  const insertPdfAtCursor = (src: string, name: string) => {
+    const link = document.createElement("a");
+    link.href = src;
+    link.textContent = name;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.className = "my-2 inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-orange-700 underline";
+    link.setAttribute("contenteditable", "false");
+    insertNodeAtSelection(link);
+    const br = document.createElement("br");
+    insertNodeAtSelection(br);
+  };
+
   const handleInsertImageClick = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleInsertVideoClick = () => {
+    videoInputRef.current?.click();
+  };
+
+  const handleInsertPdfClick = () => {
+    pdfInputRef.current?.click();
   };
 
   const handleImageInsertFromFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -579,6 +647,97 @@ syncContentFromEditor();
     };
     reader.readAsDataURL(file);
     e.target.value = "";
+  };
+
+  const handleVideoInsertFromFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("video/")) {
+      setImageError(true);
+      setImageErrorMsg("Please select a valid video file.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        insertVideoAtCursor(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handlePdfInsertFromFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      setImageError(true);
+      setImageErrorMsg("Please select a valid PDF file.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        insertPdfAtCursor(reader.result, file.name);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const buildPollHtml = () => {
+    const question = pollQuestion.trim();
+    const options = pollOptions.map((option) => option.trim()).filter(Boolean);
+    if (!question && options.length < 2) return "";
+
+    return `
+      <div class="my-3 rounded-xl border border-purple-200 bg-purple-50 p-4">
+        <p class="font-semibold text-gray-900">${escapeHtml(question || "Poll")}</p>
+        <div class="mt-3 space-y-2">
+          ${options
+            .map(
+              (option) =>
+                `<div class="rounded-lg border border-purple-200 bg-white px-3 py-2 text-gray-700">${escapeHtml(option)}</div>`,
+            )
+            .join("")}
+        </div>
+        <p class="mt-3 text-xs text-gray-500">Poll duration: ${escapeHtml(pollDuration)}</p>
+      </div>
+    `;
+  };
+
+  const buildEventHtml = () => {
+    const name = eventName.trim();
+    const location = eventLocation.trim();
+    const link = eventLink.trim();
+    if (!name && !eventDate && !eventTime && !location && !link) return "";
+
+    return `
+      <div class="my-3 rounded-xl border border-purple-200 bg-purple-50 p-4">
+        <p class="font-semibold text-purple-700">Event</p>
+        <p class="mt-2 text-lg font-semibold text-gray-900">${escapeHtml(name || "Untitled event")}</p>
+        <p class="mt-1 text-sm text-gray-700">${escapeHtml(eventType)}</p>
+        <p class="mt-2 text-sm text-gray-700">${escapeHtml([eventDate, eventTime].filter(Boolean).join(" at "))}</p>
+        ${location && eventType !== "virtual" ? `<p class="mt-1 text-sm text-gray-700">${escapeHtml(location)}</p>` : ""}
+        ${link && eventType !== "in-person" ? `<p class="mt-1 text-sm text-gray-700">${escapeHtml(link)}</p>` : ""}
+      </div>
+    `;
+  };
+
+  const getPostContent = () => {
+    const parts = [content.trim()];
+    const pollHtml = buildPollHtml();
+    const eventHtml = buildEventHtml();
+    if (pollHtml) parts.push(pollHtml);
+    if (eventHtml) parts.push(eventHtml);
+    return parts.filter(Boolean).join("\n\n");
+  };
+
+  const getGeneratedTitle = () => {
+    const text = getEditorText() || pollQuestion.trim() || eventName.trim();
+    return (text || "Create New Post").slice(0, 80);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -733,18 +892,17 @@ syncContentFromEditor();
   const handleSubmit = async () => {
     if (isSubmitting || isLoading) return;
 
-    const hasTitle = title.trim().length > 0;
-    const hasContent = content.trim().length > 0;
-    setTitleError(!hasTitle);
+    const finalContent = getPostContent();
+    const hasContent = finalContent.length > 0;
     setContentError(!hasContent);
-    if (!hasTitle || !hasContent) return;
+    if (!hasContent) return;
 
     setIsSubmitting(true);
     try {
       await onSubmit({
-        title: title.trim(),
-        content: content.trim(),
-        author: author.trim() || "Anonymous",
+        title: getGeneratedTitle(),
+        content: finalContent,
+        author: "Anonymous",
         imageUrl: imageUrl.trim() || undefined,
         tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
       });
@@ -758,8 +916,6 @@ syncContentFromEditor();
 
   const handleReset = () => {
     clearImageTimer();
-    setTitle("");
-    setAuthor("");
     setContent("");
     setTags("");
     setImageUrl("");
@@ -770,9 +926,19 @@ syncContentFromEditor();
     setAiPrompt("");
     setShowAiPanel(false);
     setShowImagePanel(false);
-    setTitleError(false);
     setContentError(false);
     setActiveTab("write");
+    setShowTextToolbar(false);
+    setActiveMediaComposer(null);
+    setPollQuestion("");
+    setPollOptions(["", ""]);
+    setPollDuration("1 week");
+    setEventName("");
+    setEventType("in-person");
+    setEventDate("");
+    setEventTime("");
+    setEventLocation("");
+    setEventLink("");
     savedSelection.current = null;
     if (editorRef.current) editorRef.current.innerHTML = "";
   };
@@ -800,6 +966,67 @@ syncContentFromEditor();
     >
       {display}
     </button>
+  );
+
+  const editorToolBtn = (
+    label: string,
+    display: React.ReactNode,
+    onClick: () => void,
+    extra = "",
+  ) => (
+    <button
+      type="button"
+      title={label}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        saveSelection();
+        onClick();
+      }}
+      className={`w-8 h-8 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-800 transition-colors ${extra}`}
+    >
+      {display}
+    </button>
+  );
+
+  const insertEditorHtml = (html: string) => {
+    restoreSelection();
+    replaceSelectionWithHtml(html);
+  };
+
+  const mediaToolBtn = (
+    label: string,
+    icon: React.ReactNode,
+    onClick: () => void,
+    color = "text-gray-800",
+  ) => (
+    <button
+      type="button"
+      title={label}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        saveSelection();
+      }}
+      onClick={onClick}
+      className={`w-8 h-8 rounded-md border border-gray-200 hover:bg-gray-100 flex items-center justify-center bg-white shadow-sm transition-colors ${color}`}
+    >
+      {icon}
+    </button>
+  );
+
+  const mediaButtons = (
+    <>
+      {mediaToolBtn("Insert Image", <Image className="w-4 h-4" />, handleInsertImageClick, "text-blue-600")}
+      {mediaToolBtn("Insert Video", <Video className="w-4 h-4" />, handleInsertVideoClick, "text-green-600")}
+      {mediaToolBtn("Insert PDF", <FileText className="w-4 h-4" />, handleInsertPdfClick, "text-orange-600")}
+      {mediaToolBtn("Create Poll", <BarChart3 className="w-4 h-4" />, () =>
+        setActiveMediaComposer((current) => (current === "poll" ? null : "poll")),
+        "text-purple-600"
+      )}
+      {mediaToolBtn("Create Event", <Calendar className="w-4 h-4" />, () =>
+        setActiveMediaComposer((current) => (current === "event" ? null : "event")),
+        "text-violet-600"
+      )}
+    </>
   );
 
   useEffect(() => {
@@ -838,10 +1065,10 @@ syncContentFromEditor();
         onClick={handleClose}
         onKeyDown={(e) => e.key === "Escape" && handleClose()}
       />
-      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: "56rem" }}>
-        <div className="w-full max-h-[84vh] flex flex-col bg-white rounded-[18px] shadow-2xl border border-gray-200 overflow-hidden">
+      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: "40rem" }}>
+        <div className="w-full max-h-[75vh] flex flex-col bg-white rounded-[18px] shadow-2xl border border-gray-200 overflow-hidden">
           <div className="flex items-center justify-between px-7 py-5 border-b border-gray-200 shrink-0">
-            <h2 className="text-[22px] font-semibold text-gray-900">Create Post</h2>
+            <h2 className="text-[22px] font-semibold text-gray-900">Create New Post</h2>
             <button
               type="button"
               onClick={handleClose}
@@ -872,40 +1099,6 @@ syncContentFromEditor();
             {activeTab === "write" ? (
               <div className="space-y-5">
                 <div>
-                  <label htmlFor="post-title" className="block text-[15px] font-medium text-gray-800 mb-2">
-                    Title <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="post-title"
-                    type="text"
-                    value={title}
-                    onChange={(e) => {
-                      setTitle(e.target.value);
-                      setTitleError(false);
-                    }}
-                    placeholder="Enter a compelling title..."
-                    className={`w-full px-4 py-3 border rounded-xl bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-[15px] ${
-                      titleError ? "border-red-400 ring-2 ring-red-200" : "border-gray-200"
-                    }`}
-                  />
-                  {titleError && <p className="text-xs text-red-500 mt-1">Title is required.</p>}
-                </div>
-
-                <div>
-                  <label htmlFor="post-author" className="block text-[15px] font-medium text-gray-800 mb-2">
-                    Author Name
-                  </label>
-                  <input
-                    id="post-author"
-                    type="text"
-                    value={author}
-                    onChange={(e) => setAuthor(e.target.value)}
-                    placeholder="Your name (optional)"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-[15px]"
-                  />
-                </div>
-
-                <div>
                   <div className="flex items-center justify-between mb-2">
                     <label htmlFor="post-content" className="block text-[15px] font-medium text-gray-800">
                       Content <span className="text-red-500">*</span>
@@ -914,7 +1107,7 @@ syncContentFromEditor();
                       <button
                         type="button"
                         onClick={handleRewriteAI}
-                        disabled={rewriteLoading || !content.trim()}
+                        disabled={rewriteLoading || !getEditorText()}
                         className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 shadow-sm transition-colors text-sm disabled:opacity-50"
                       >
                         <Sparkles className="w-4 h-4 text-purple-500" />
@@ -988,7 +1181,7 @@ syncContentFromEditor();
                   )}
 
                   <div className="border border-gray-300 rounded-xl overflow-hidden bg-white">
-                    <div className="px-3 py-2 border-b border-gray-200 bg-white flex items-center gap-1.5 flex-wrap">
+                    <div className="hidden px-3 py-2 border-b border-gray-200 bg-white items-center gap-1.5 flex-wrap">
                       <select className="text-sm bg-transparent border-none outline-none px-1 py-1 text-gray-700 cursor-pointer">
                         <option>Normal</option>
                         <option>Heading 1</option>
@@ -1039,7 +1232,232 @@ syncContentFromEditor();
                       }`}
                       
                     />
+                    <div className="min-h-[58px] px-3 py-2 border-t border-gray-200 bg-white flex items-center gap-1.5 flex-wrap">
+                      {showTextToolbar ? (
+                        <>
+                          <button
+                            type="button"
+                            title="Hide formatting"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              saveSelection();
+                            }}
+                            onClick={() => setShowTextToolbar(false)}
+                            className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center text-white transition-colors"
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                          </button>
+                          {editorToolBtn("Undo", <Undo2 className="w-4 h-4" />, () => {
+                            document.execCommand("undo");
+                            syncContentFromEditor();
+                          })}
+                          {editorToolBtn("Redo", <Redo2 className="w-4 h-4" />, () => {
+                            document.execCommand("redo");
+                            syncContentFromEditor();
+                          }, "text-gray-400")}
+                          <div className="w-px h-8 bg-gray-300 mx-1" />
+                          {editorToolBtn("Heading 1", "H1", () =>
+                            insertEditorHtml("<h1 class=\"text-2xl font-bold my-2\">Heading 1</h1>"),
+                            "font-bold text-base"
+                          )}
+                          {toolbarBtn("bold", "Bold", "B", "font-bold text-lg")}
+                          {toolbarBtn("italic", "Italic", "I", "italic text-lg")}
+                          <div className="w-px h-8 bg-gray-300 mx-1" />
+                          {toolbarBtn("ul", "Bullet List", <List className="w-4 h-4" />)}
+                          {toolbarBtn("ol", "Numbered List", <ListOrdered className="w-4 h-4" />)}
+                          <div className="w-px h-8 bg-gray-300 mx-1" />
+                          {toolbarBtn("link", "Link", <Link2 className="w-4 h-4" />)}
+                          {editorToolBtn("Divider", <Minus className="w-4 h-4" />, () =>
+                            insertEditorHtml("<hr class=\"my-3 border-gray-300\" />")
+                          )}
+                          {editorToolBtn("Mention", <AtSign className="w-4 h-4" />, () =>
+                            insertEditorHtml("<span>@mention</span>")
+                          )}
+                          {toolbarBtn("quote", "Quote", "99", "font-serif text-lg")}
+                          {toolbarBtn("strikethrough", "Special", "[*]", "font-mono text-sm")}
+                          {toolbarBtn("code", "Code", <Braces className="w-4 h-4" />)}
+                          {editorToolBtn("Equation", <Sigma className="w-4 h-4" />, () =>
+                            insertEditorHtml("<span class=\"font-serif\">Equation</span>")
+                          )}
+                          {mediaButtons}
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            title="Text formatting"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              saveSelection();
+                            }}
+                            onClick={() => setShowTextToolbar(true)}
+                            className="w-8 h-8 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-800 font-semibold transition-colors"
+                          >
+                            Aa
+                          </button>
+                          {mediaButtons}
+                        </>
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleImageInsertFromFile}
+                      />
+                      <input
+                        ref={videoInputRef}
+                        type="file"
+                        accept="video/*"
+                        className="hidden"
+                        onChange={handleVideoInsertFromFile}
+                      />
+                      <input
+                        ref={pdfInputRef}
+                        type="file"
+                        accept="application/pdf"
+                        className="hidden"
+                        onChange={handlePdfInsertFromFile}
+                      />
+                    </div>
                   </div>
+
+                  {activeMediaComposer === "poll" && (
+                    <div className="mt-3 space-y-3">
+                      <input
+                        type="text"
+                        value={pollQuestion}
+                        onChange={(e) => setPollQuestion(e.target.value)}
+                        placeholder="Ask a question..."
+                        className="w-full px-4 py-3 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                      />
+                      {pollOptions.map((option, index) => (
+                        <input
+                          key={index}
+                          type="text"
+                          value={option}
+                          onChange={(e) =>
+                            setPollOptions((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? e.target.value : item,
+                              ),
+                            )
+                          }
+                          placeholder={`Option ${index + 1}`}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                        />
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setPollOptions((current) => [...current, ""])}
+                        className="w-full h-11 rounded-md border border-gray-200 bg-white hover:bg-gray-50 shadow-sm flex items-center justify-center gap-2 text-gray-800"
+                      >
+                        <Plus className="w-5 h-5" />
+                        Add option
+                      </button>
+                      <select
+                        value={pollDuration}
+                        onChange={(e) => setPollDuration(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                      >
+                        <option>1 day</option>
+                        <option>3 days</option>
+                        <option>1 week</option>
+                        <option>2 weeks</option>
+                        <option>1 month</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {activeMediaComposer === "event" && (
+                    <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50/60 p-4">
+                      <div className="mb-5 flex items-center gap-2 text-purple-700 font-semibold text-lg">
+                        <Calendar className="w-4 h-4" />
+                        Create Event
+                      </div>
+                      <input
+                        type="text"
+                        value={eventName}
+                        onChange={(e) => setEventName(e.target.value)}
+                        placeholder="Event name *"
+                        className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                      />
+                      <div className="mt-5 flex flex-wrap gap-2">
+                        {[
+                          { value: "in-person" as const, label: "In-person", icon: <MapPin className="w-5 h-5" /> },
+                          { value: "virtual" as const, label: "Virtual", icon: <Link className="w-5 h-5" /> },
+                          { value: "hybrid" as const, label: "Hybrid", icon: <Globe className="w-5 h-5" /> },
+                        ].map((type) => (
+                          <button
+                            key={type.value}
+                            type="button"
+                            onClick={() => setEventType(type.value)}
+                            className={`inline-flex h-11 items-center gap-2 rounded-md border px-4 font-semibold shadow-sm transition-colors ${
+                              eventType === type.value
+                                ? "border-purple-600 bg-purple-600 text-white"
+                                : "border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
+                            }`}
+                          >
+                            {type.icon}
+                            {type.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm text-gray-500 mb-1">Date *</label>
+                          <div className="relative">
+                            <input
+                              type="date"
+                              value={eventDate}
+                              onChange={(e) => setEventDate(e.target.value)}
+                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                            />
+                            <Calendar className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-500 mb-1">Time *</label>
+                          <div className="relative">
+                            <input
+                              type="time"
+                              value={eventTime}
+                              onChange={(e) => setEventTime(e.target.value)}
+                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                            />
+                            <Clock className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
+                          </div>
+                        </div>
+                      </div>
+                      {(eventType === "in-person" || eventType === "hybrid") && (
+                        <div className="mt-5 flex items-center gap-3">
+                          <MapPin className="w-5 h-5 text-gray-500 shrink-0" />
+                          <input
+                            type="text"
+                            value={eventLocation}
+                            onChange={(e) => setEventLocation(e.target.value)}
+                            placeholder="Add location *"
+                            className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                          />
+                        </div>
+                      )}
+                      {(eventType === "virtual" || eventType === "hybrid") && (
+                        <div className="mt-5 flex items-center gap-3">
+                          <Link className="w-5 h-5 text-gray-500 shrink-0" />
+                          <input
+                            type="url"
+                            value={eventLink}
+                            onChange={(e) => setEventLink(e.target.value)}
+                            placeholder="Add virtual meeting link *"
+                            className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                          />
+                        </div>
+                      )}
+                      <p className="mt-5 text-sm text-gray-500">
+                        Add event details in the post content above
+                      </p>
+                    </div>
+                  )}
 
                   {contentError && (
                     <p className="text-xs text-red-500 mt-1">Content is required.</p>
@@ -1066,21 +1484,6 @@ syncContentFromEditor();
                       Cover Image
                     </label>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        id="cover-image-input"
-                        onChange={handleFileUpload}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => document.getElementById("cover-image-input")?.click()}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 shadow-sm transition-colors text-sm"
-                      >
-                        <Upload className="w-4 h-4 text-green-500" />
-                        Upload from computer
-                      </button>
                       <button
                         type="button"
                         onClick={() => setShowImagePanel(!showImagePanel)}
@@ -1144,18 +1547,6 @@ syncContentFromEditor();
                       </div>
                     </div>
                   )}
-
-                  <input
-                    id="post-image-url"
-                    type="text"
-                    value={imageUrl}
-                    onChange={(e) => {
-                      setImageUrl(e.target.value);
-                      setRetryKey((k) => k + 1);
-                    }}
-                    placeholder="https://example.com/image.jpg  (or use buttons above)"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-[15px]"
-                  />
 
                   {(imageUrl || imageError) && (
                     <div
@@ -1227,15 +1618,11 @@ syncContentFromEditor();
                       <div className="w-6 h-6 border-2 border-gray-300 border-t-purple-500 rounded-full animate-spin" />
                     </div>
                   )}
-                  <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                    {title || "Untitled Post"}
-                  </h1>
-                  {author && <p className="text-sm text-gray-500 mb-4">By {author}</p>}
                   <div
                     className="prose max-w-none text-gray-700 leading-relaxed text-sm"
                     dangerouslySetInnerHTML={{
-                      __html: content
-                        ? content
+                      __html: getPostContent()
+                        ? getPostContent()
                         : '<span class="text-gray-400 italic">Your post content will appear here...</span>',
                     }}
                   />
