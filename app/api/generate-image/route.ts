@@ -99,8 +99,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (!res.ok) {
-      const err = await res.text();
-      return NextResponse.json({ error: err }, { status: res.status });
+      const errText = await res.text();
+      const errorMessage = errText
+        ? `Unsplash returned ${res.status}: ${errText}`
+        : `Unsplash returned ${res.status} ${res.statusText}`;
+      console.error("generate-image failed:", errorMessage, { url, prompt });
+      return NextResponse.json({ error: errorMessage }, { status: res.status });
     }
 
     const data = await res.json() as {
@@ -108,9 +112,15 @@ export async function POST(req: NextRequest) {
       alt_description: string | null;
     };
 
-    // Return the image URL directly — no proxying needed, Unsplash URLs are public
+    if (!data?.urls?.regular) {
+      const errorMessage = "Unsplash response did not include a valid image URL.";
+      console.error("generate-image invalid response:", data, { url, prompt });
+      return NextResponse.json({ error: errorMessage }, { status: 502 });
+    }
+
     return NextResponse.json({ url: data.urls.regular });
   } catch (err) {
+    console.error("generate-image exception:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to fetch image" },
       { status: 500 },
