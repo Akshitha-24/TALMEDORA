@@ -9,6 +9,10 @@ function isHtmlString(value: string) {
   return /<\/?[a-z][\s\S]*>/i.test(value);
 }
 
+function plainText(value: string) {
+  return value.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+}
+
 export default function PostCard({ post }: PostCardProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -16,17 +20,25 @@ export default function PostCard({ post }: PostCardProps) {
     ? post.content
     : post.content.replace(/\n/g, '<br />');
 
-  const plainTextContent = post.content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  const plainTextContent = plainText(post.content);
   const shouldShowToggle = plainTextContent.length > 180;
+  const firstHeading = plainText(post.content.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? '');
+  const displayTitle = post.title.trim();
+  const shouldShowTitle =
+    displayTitle &&
+    displayTitle !== 'Create New Post' &&
+    displayTitle.toLowerCase() !== firstHeading.toLowerCase();
 
   return (
     <article className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
       {post.imageUrl && (
-        <img src={post.imageUrl} alt={post.title} className="w-full h-48 object-contain bg-gray-50" />
+        <img src={post.imageUrl} alt={displayTitle || 'Post image'} className="w-full h-48 object-contain bg-gray-50" />
       )}
 
       <div className="p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-2">{post.title}</h2>
+        {shouldShowTitle && (
+          <h2 className="text-xl font-bold text-gray-900 mb-2">{displayTitle}</h2>
+        )}
 
         {post.author && (
           <p className="text-sm text-gray-500 mb-3">By {post.author}</p>

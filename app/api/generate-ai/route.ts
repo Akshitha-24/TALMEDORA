@@ -48,6 +48,10 @@ Word count requirements:
 IMPORTANT:
 - You MUST satisfy the requested word count.
 - If length is long, write at least 500 words.
+- Start with exactly one short title line formatted as Markdown H1, for example: # Paris, My Second Home
+- The title must be 2-6 words.
+- The title must be different from the first sentence of the body.
+- After the title, leave one blank line and then write the body.
 - Write about the actual topic literally.
 - Do not write about how to write the post.
 - Do not mention prompts, word counts, instructions, or AI.
@@ -56,10 +60,9 @@ IMPORTANT:
 - If the topic is a personal opinion like "I hate biryani", write from that perspective with concrete reasons and examples.
 - Do not pretend the topic has a community, learning resources, productivity benefits, or success path unless the prompt clearly asks for that.
 - Do not repeat paragraphs or use generic filler.
-- Do not use markdown.
-- Do not use headings.
-- Do not use bold text.
-- Return plain text only.`,
+- Do not repeat the title as the opening sentence.
+- Do not use markdown except the first H1 title line.
+- Return only the H1 title and body text.`,
           },
         ],
         temperature: 0.7,

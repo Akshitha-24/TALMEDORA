@@ -2,11 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
   try {
-    const { content } = await req.json() as { content: string };
+    const { content, action = "polish" } = await req.json() as {
+      content: string;
+      action?: "polish" | "shorter" | "longer" | "tone";
+    };
 
     if (!content?.trim()) {
       return NextResponse.json({ error: "Content is required" }, { status: 400 });
     }
+
+    const rewriteInstructions = {
+      polish:
+        "Rewrite the following post content to make it clearer, more polished, and engaging while preserving the original meaning.",
+      shorter:
+        "Rewrite the following post content into a shorter, tighter version. Keep the main idea and strongest details, but remove repetition and filler.",
+      longer:
+        "Rewrite the following post content into a longer, richer version. Preserve the original meaning and add useful context, detail, and smoother transitions.",
+      tone:
+        "Rewrite the following post content with a warmer, more conversational tone while preserving the original meaning.",
+    };
+
+    const instruction = rewriteInstructions[action] ?? rewriteInstructions.polish;
 
     const groqKey = process.env.NEXT_PUBLIC_GROQ_API_KEY;
     if (!groqKey) {
@@ -30,7 +46,7 @@ export async function POST(req: NextRequest) {
         messages: [
           {
             role: "user",
-            content: `Rewrite the following post content to make it clearer, more polished, and engaging while preserving the original meaning.
+            content: `${instruction}
 
 Return only the rewritten plain text. Do not use markdown, headings, bold text, or explanations.
 

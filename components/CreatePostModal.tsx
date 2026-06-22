@@ -1,28 +1,7 @@
 import type { CreatePostInput } from "@/types/post";
 import {
-  AtSign,
-  BarChart3,
-  Braces,
-  Calendar,
-  ChevronDown,
-  Clock,
-  FileText,
-  Globe,
-  Image,
-  Link,
-  Link2,
-  List,
-  ListOrdered,
-  MapPin,
-  Minus,
-  Plus,
-  Redo2,
-  RefreshCw,
-  Sigma,
-  Sparkles,
-  Undo2,
-  Video,
-  X,
+  AlarmClock,AtSign,BarChart3,Braces,Calendar,CalendarCheck, ChevronDown, Clock,FileText,Globe,Image,Link,Link2,List,ListOrdered,MapPin,
+  Minus,Plus,Redo2,RefreshCw,Sigma,Sparkles,Undo2,Video,Wand2,X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -44,11 +23,13 @@ type FormatAction =
   | "quote"
   | "code"
   | "link";
+  
 
 type Tone = "professional" | "casual" | "creative" | "formal";
 type Length = "short" | "medium" | "long";
 type MediaComposer = "poll" | "event" | null;
 type EventType = "in-person" | "virtual" | "hybrid";
+type RewriteAction = "polish" | "shorter" | "longer" | "tone";
 
 const formatMap: Record<
   FormatAction,
@@ -79,7 +60,15 @@ function escapeHtml(str: string) {
 function parseMarkdown(text: string): string {
   let html = escapeHtml(text);
 
-  
+  html = html.replace(
+    /^#\s+(.*?)$/gm,
+    '<h1 class="text-2xl font-bold text-gray-900 mt-0 mb-3">$1</h1>',
+  );
+  html = html.replace(
+    /^##\s+(.*?)$/gm,
+    '<h2 class="text-xl font-bold text-gray-900 mt-0 mb-3">$1</h2>',
+  );
+
   html = html.replace(
     /^> (.*?)$/gm,
     '<blockquote class="border-l-4 border-indigo-300 pl-4 italic text-gray-500 my-2">$1</blockquote>',
@@ -124,8 +113,15 @@ function parseMarkdown(text: string): string {
   return html;
 }
 
+function trimLeadingEditorHtml(html: string): string {
+  return html.replace(
+    /^(\s|&nbsp;|<br\s*\/?>|<div>\s*(?:<br\s*\/?>)?\s*<\/div>|<p>\s*(?:<br\s*\/?>)?\s*<\/p>)+/gi,
+    "",
+  );
+}
+
 function markdownToHtmlForEditor(text: string): string {
-  return parseMarkdown(text);
+  return trimLeadingEditorHtml(parseMarkdown(text));
 }
 
 function getWordCount(text: string): number {
@@ -139,6 +135,84 @@ function stripMarkdown(text: string): string {
     .replace(/(?<!\*)\*(?!\s)(.*?)\*(?!\*)/g, "$1")
     .replace(/~~(.*?)~~/g, "$1")
     .replace(/`(.*?)`/g, "$1");
+}
+
+function normalizeTitleText(text: string) {
+  return stripMarkdown(text)
+    .replace(/<[^>]+>/g, "")
+    .replace(/^[\s"'`*_#-]+|[\s"'`*_.!?,:;-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function similarityKey(text: string) {
+  return normalizeTitleText(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractTopicTitle(prompt: string, body: string) {
+  const source = `${prompt} ${body}`;
+  const secondHomeMatch = source.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b[\s\S]{0,80}\bsecond home\b/i);
+  if (secondHomeMatch) return `${secondHomeMatch[1]}, My Second Home`;
+
+  const placeMatch = source.match(/\b(?:love|like|miss|visit|visited|exploring|explore)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/);
+  if (placeMatch) return `${placeMatch[1]} Moments`;
+
+  const words = normalizeTitleText(prompt)
+    .replace(/\b(i|we|you|they|love|like|hate|dislike|about|write|post|content|the|a|an|and|or|but|is|are|was|were|it|its|my|our|your)\b/gi, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2)
+    .slice(0, 4);
+
+  const title = words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+
+  return title || "A Fresh Thought";
+}
+
+function normalizeGeneratedPost(generated: string, prompt: string) {
+  const lines = generated
+    .trim()
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) return "";
+
+  let title = "";
+  let bodyLines = lines;
+  const firstLine = normalizeTitleText(lines[0]);
+  const secondLineKey = similarityKey(lines[1] ?? "");
+  const firstLineKey = similarityKey(firstLine);
+  const firstLineLooksLikeTitle =
+    /^#{1,6}\s+/.test(lines[0]) ||
+    lines[0].startsWith("**") ||
+    (firstLine.length <= 90 && secondLineKey.startsWith(firstLineKey));
+
+  if (firstLineLooksLikeTitle) {
+    title = firstLine;
+    bodyLines = lines.slice(1);
+  }
+
+  const body = bodyLines.join("\n\n");
+  const firstSentence = body.match(/^[^.!?]+[.!?]?/)?.[0] ?? "";
+
+  if (!title || similarityKey(firstSentence).startsWith(similarityKey(title))) {
+    title = extractTopicTitle(prompt, body);
+  }
+
+  const uniqueBodyLines = bodyLines.filter((line, index) => {
+    if (index === 0) return true;
+    const previous = similarityKey(bodyLines[index - 1]);
+    const current = similarityKey(line);
+    return !(current.startsWith(previous) || previous.startsWith(current));
+  });
+
+  return `# ${title}\n\n${uniqueBodyLines.join("\n\n")}`;
 }
 
 function generateLocalContent(topic: string, tone: Tone, length: Length): string {
@@ -247,23 +321,23 @@ function generateLocalContent(topic: string, tone: Tone, length: Length): string
   const b6 = body[(seed + 6) % body.length];
 
   if (length === "short") {
-  return `${hook}
+    return `${hook}
 
 ${b0}`;
-}
+  }
 
-if (length === "medium") {
-  return `${hook}
+  if (length === "medium") {
+    return `${hook}
 
 ${b0}
 
 ${b1}
 
 ${b2}`;
-}
+  }
 
-// long
-return `${hook}
+  // long
+  return `${hook}
 
 ${b0}
 
@@ -278,7 +352,6 @@ ${b4}
 ${b0}
 
 ${b1}`;
-
 }
 
 function getTopicKeywords(topic: string): string[] {
@@ -409,7 +482,6 @@ export default function CreatePostModal({
 }: CreatePostModalProps) {
   const [activeTab, setActiveTab] = useState<"write" | "preview">("write");
   const [content, setContent] = useState("");
-  const [tags, setTags] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -417,16 +489,13 @@ export default function CreatePostModal({
   const [retryKey, setRetryKey] = useState(0);
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
-const [aiTone, setAiTone] = useState<Tone>("casual");
+  const [aiTone, setAiTone] = useState<Tone>("casual");
   const [aiLength, setAiLength] = useState<Length>("medium");
   const [aiLoading, setAiLoading] = useState(false);
   const [rewriteLoading, setRewriteLoading] = useState(false);
   const [rewriteError, setRewriteError] = useState("");
+  const [showRewriteMenu, setShowRewriteMenu] = useState(false);
   const [aiError, setAiError] = useState("");
-  const [showImagePanel, setShowImagePanel] = useState(false);
-  const [imagePrompt, setImagePrompt] = useState("");
-  const [imageStyle, setImageStyle] = useState<"realistic" | "artistic" | "minimal" | "vibrant">("realistic");
-  const [imageSize, setImageSize] = useState<"small" | "medium" | "large">("medium");
   const [imageGenLoading, setImageGenLoading] = useState(false);
   const [contentError, setContentError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -494,9 +563,37 @@ const [aiTone, setAiTone] = useState<Tone>("casual");
     setContent(el.innerHTML);
     setContentError(false);
     setRewriteError("");
+    setShowRewriteMenu(false);
   };
 
   const getEditorText = () => editorRef.current?.innerText.trim() ?? "";
+
+  const openNativeInputPicker = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const input = e.currentTarget.parentElement?.querySelector("input");
+    if (!(input instanceof HTMLInputElement)) return;
+
+    input.focus();
+    input.showPicker?.();
+  };
+
+  const getImageContentText = () => {
+    const liveText = getEditorText();
+    if (liveText && liveText !== "Share your thoughts.") return liveText;
+
+    return content
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+
+  const hasEditorContent = (() => {
+    const stripped = content.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+    return stripped.length > 0;
+  })();
+  const editorWordCount = getWordCount(getImageContentText());
 
   const saveSelection = () => {
     const sel = window.getSelection();
@@ -509,41 +606,42 @@ const [aiTone, setAiTone] = useState<Tone>("casual");
     sel.removeAllRanges();
     sel.addRange(savedSelection.current);
   };
- const insertNodeAtSelection = (node: Node) => {
-const el = editorRef.current;
-if (!el) return;
 
-el.focus();
-restoreSelection();
+  const insertNodeAtSelection = (node: Node) => {
+    const el = editorRef.current;
+    if (!el) return;
 
-const sel = window.getSelection();
-if (!sel || sel.rangeCount === 0) return;
+    el.focus();
+    restoreSelection();
 
-const range = sel.getRangeAt(0);
-range.deleteContents();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
 
-let lastNode: Node | null = null;
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
 
-if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-const frag = node as DocumentFragment;
-const nodes = Array.from(frag.childNodes);
-nodes.forEach((child) => {
-lastNode = child;
-range.insertNode(child);
-range.setStartAfter(child);
-range.collapse(true);
-});
-} else {
-range.insertNode(node);
-lastNode = node;
-range.setStartAfter(node);
-range.collapse(true);
-}
+    let lastNode: Node | null = null;
 
-sel.removeAllRanges();
-sel.addRange(range);
-syncContentFromEditor();
-}; 
+    if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+      const frag = node as DocumentFragment;
+      const nodes = Array.from(frag.childNodes);
+      nodes.forEach((child) => {
+        lastNode = child;
+        range.insertNode(child);
+        range.setStartAfter(child);
+        range.collapse(true);
+      });
+    } else {
+      range.insertNode(node);
+      lastNode = node;
+      range.setStartAfter(node);
+      range.collapse(true);
+    }
+
+    sel.removeAllRanges();
+    sel.addRange(range);
+    syncContentFromEditor();
+  };
 
   const replaceSelectionWithHtml = (html: string) => {
     const temp = document.createElement("div");
@@ -598,7 +696,7 @@ syncContentFromEditor();
     const video = document.createElement("video");
     video.src = src;
     video.controls = true;
-    video.className = "max-w-full rounded-xl my-2 block bg-black";
+    video.className = "max-w-full rounded-xl my-2 block bg-white";
     video.setAttribute("contenteditable", "false");
     insertNodeAtSelection(video);
     const br = document.createElement("br");
@@ -735,9 +833,16 @@ syncContentFromEditor();
     return parts.filter(Boolean).join("\n\n");
   };
 
-  const getGeneratedTitle = () => {
-    const text = getEditorText() || pollQuestion.trim() || eventName.trim();
-    return (text || "Create New Post").slice(0, 80);
+  const getGeneratedTitle = (sourceContent = "") => {
+    const h1Match = sourceContent.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    const heading = normalizeTitleText(h1Match?.[1] ?? "");
+    if (heading) return heading.slice(0, 80);
+
+    const plainText = normalizeTitleText(
+      sourceContent || getEditorText() || pollQuestion.trim() || eventName.trim(),
+    );
+    const firstSentence = plainText.match(/^[^.!?]+[.!?]?/)?.[0] ?? plainText;
+    return normalizeTitleText(firstSentence).slice(0, 80) || "Post";
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -787,9 +892,12 @@ syncContentFromEditor();
         return;
       }
 
+      const formattedGenerated = markdownToHtmlForEditor(
+        normalizeGeneratedPost(generated, aiPrompt.trim()),
+      );
       const newContent = content
-        ? `${content}\n\n${generated}`
-        : generated;
+        ? trimLeadingEditorHtml(`${content}<br /><br />${formattedGenerated}`)
+        : trimLeadingEditorHtml(formattedGenerated);
 
       setContent(newContent);
 
@@ -807,17 +915,18 @@ syncContentFromEditor();
     }
   };
 
-  const handleRewriteAI = async () => {
+  const handleRewriteAI = async (action: RewriteAction = "polish") => {
     const textToRewrite = getEditorText();
     if (!textToRewrite) return;
 
     setRewriteLoading(true);
     setRewriteError("");
+    setShowRewriteMenu(false);
     try {
       const res = await fetch("/api/rewrite-ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: textToRewrite }),
+        body: JSON.stringify({ content: textToRewrite, action }),
       });
 
       if (!res.ok) {
@@ -849,24 +958,18 @@ syncContentFromEditor();
   };
 
   const handleGenerateImage = async () => {
-    if (!imagePrompt.trim()) return;
+    const prompt = getImageContentText();
+    if (!prompt.trim()) return;
+
     setImageGenLoading(true);
     setImageLoaded(false);
     setImageError(false);
     setImageErrorMsg("");
     try {
-      const styleMap = {
-        realistic: "photorealistic, highly detailed, professional photography",
-        artistic: "digital art, painterly, artistic, vibrant brushstrokes",
-        minimal: "minimalist, clean, simple, flat design",
-        vibrant: "vibrant colors, high contrast, colorful, vivid",
-      };
-      const enrichedPrompt = `${imagePrompt.trim()}, ${styleMap[imageStyle]}`;
-
       const res = await fetch("/api/generate-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: enrichedPrompt }),
+        body: JSON.stringify({ prompt }),
       });
 
       if (!res.ok) {
@@ -878,10 +981,8 @@ syncContentFromEditor();
       if (!data.url) throw new Error("No image URL returned.");
 
       setImageUrl(data.url);
-      setShowImagePanel(false);
-      setImagePrompt("");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Image generation failed.";
+      const msg = err instanceof Error ? err.message : "Image search failed.";
       setImageError(true);
       setImageErrorMsg(msg);
     } finally {
@@ -900,11 +1001,11 @@ syncContentFromEditor();
     setIsSubmitting(true);
     try {
       await onSubmit({
-        title: getGeneratedTitle(),
+        title: getGeneratedTitle(finalContent),
         content: finalContent,
         author: "Anonymous",
         imageUrl: imageUrl.trim() || undefined,
-        tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+        tags: [],
       });
 
       handleReset();
@@ -917,7 +1018,6 @@ syncContentFromEditor();
   const handleReset = () => {
     clearImageTimer();
     setContent("");
-    setTags("");
     setImageUrl("");
     setImageLoaded(false);
     setImageError(false);
@@ -925,10 +1025,10 @@ syncContentFromEditor();
     setRetryKey(0);
     setAiPrompt("");
     setShowAiPanel(false);
-    setShowImagePanel(false);
     setContentError(false);
     setActiveTab("write");
     setShowTextToolbar(false);
+    setShowRewriteMenu(false);
     setActiveMediaComposer(null);
     setPollQuestion("");
     setPollOptions(["", ""]);
@@ -1015,7 +1115,7 @@ syncContentFromEditor();
 
   const mediaButtons = (
     <>
-      {mediaToolBtn("Insert Image", <Image className="w-4 h-4" />, handleInsertImageClick, "text-blue-600")}
+      {mediaToolBtn("Insert Image", <Image className="w-4 h-4" />, handleInsertImageClick, "text-violet-600")}
       {mediaToolBtn("Insert Video", <Video className="w-4 h-4" />, handleInsertVideoClick, "text-green-600")}
       {mediaToolBtn("Insert PDF", <FileText className="w-4 h-4" />, handleInsertPdfClick, "text-orange-600")}
       {mediaToolBtn("Create Poll", <BarChart3 className="w-4 h-4" />, () =>
@@ -1029,14 +1129,36 @@ syncContentFromEditor();
     </>
   );
 
-  useEffect(() => {
-  if (activeTab !== "write" || !editorRef.current) return;
+  const generateImageToolbarBtn = (
+    <button
+      type="button"
+      title="Generate Image"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        saveSelection();
+      }}
+      onClick={handleGenerateImage}
+      disabled={imageGenLoading || !getImageContentText()}
+      className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-purple-300 bg-white text-purple-600 hover:bg-purple-50 shadow-sm transition-colors text-xs font-medium disabled:opacity-50"
+    >
+      {imageGenLoading ? (
+        <Sparkles className="w-3.5 h-3.5" />
+      ) : (
+        <Image className="w-3.5 h-3.5" />
+      )}
+      {imageGenLoading ? "Generating..." : "Generate Image"}
+    </button>
+  );
 
-  if (!editorRef.current.innerHTML.trim()) {
-    editorRef.current.innerHTML =
-      content || '<span class="text-gray-400">Share your thoughts.</span>';
-  }
-}, [activeTab]);
+  useEffect(() => {
+    if (activeTab !== "write" || !editorRef.current) return;
+
+    if (!editorRef.current.innerHTML.trim()) {
+      editorRef.current.innerHTML =
+        content || '<span class="text-gray-400">Share your thoughts.</span>';
+    }
+  }, [activeTab]);
+
   if (!isOpen) return null;
 
   const modalContent = (
@@ -1066,8 +1188,8 @@ syncContentFromEditor();
         onKeyDown={(e) => e.key === "Escape" && handleClose()}
       />
       <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: "40rem" }}>
-        <div className="w-full max-h-[75vh] flex flex-col bg-white rounded-[18px] shadow-2xl border border-gray-200 overflow-hidden">
-          <div className="flex items-center justify-between px-7 py-5 border-b border-gray-200 shrink-0">
+        <div className="relative w-full max-h-[75vh] flex flex-col bg-white rounded-[18px] shadow-2xl border border-violet-100 overflow-hidden">
+          <div className="flex items-center justify-between px-7 py-5 border-b border-violet-100 shrink-0">
             <h2 className="text-[22px] font-semibold text-gray-900">Create New Post</h2>
             <button
               type="button"
@@ -1078,109 +1200,252 @@ syncContentFromEditor();
             </button>
           </div>
 
-          <div className="flex items-center gap-3 px-7 pt-5 shrink-0">
-            {(["write", "preview"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={`px-5 py-2.5 rounded-xl text-[15px] font-medium transition-colors capitalize ${
-                  activeTab === tab
-                    ? "bg-indigo-700 text-white shadow-sm"
-                    : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-7 pb-6 pt-4">
+          <div className="flex-1 overflow-y-auto px-7 pb-6 pt-5">
             {activeTab === "write" ? (
+              activeMediaComposer ? (
+                <div className="min-h-[calc(75vh-10rem)]">
+                  <div className="mb-5 flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setActiveMediaComposer(null)}
+                      className="inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium text-gray-600 hover:bg-gray-100"
+                    >
+                      Back
+                    </button>
+                    <div className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+                      {activeMediaComposer === "poll" ? (
+                        <>
+                          <BarChart3 className="w-5 h-5 text-purple-600" />
+                          Create Poll
+                        </>
+                      ) : (
+                        <>
+                          <Calendar className="w-5 h-5 text-purple-600" />
+                          Create Event
+                        </>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveMediaComposer(null)}
+                      className="inline-flex h-9 items-center rounded-lg border border-purple-300 bg-white px-4 text-sm font-medium text-purple-600 shadow-sm hover:bg-purple-50"
+                    >
+                      Done
+                    </button>
+                  </div>
+
+                  {activeMediaComposer === "poll" ? (
+                    <div className="space-y-4">
+                      <input
+                        type="text"
+                        value={pollQuestion}
+                        onChange={(e) => setPollQuestion(e.target.value)}
+                        placeholder="Ask a question..."
+                        className="w-full px-4 py-3 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                      />
+                      {pollOptions.map((option, index) => (
+                        <input
+                          key={index}
+                          type="text"
+                          value={option}
+                          onChange={(e) =>
+                            setPollOptions((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? e.target.value : item,
+                              ),
+                            )
+                          }
+                          placeholder={`Option ${index + 1}`}
+                          className="w-full px-4 py-3 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                        />
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setPollOptions((current) => [...current, ""])}
+                        className="w-full h-11 rounded-md border border-gray-200 bg-white hover:bg-gray-50 shadow-sm flex items-center justify-center gap-2 text-gray-800"
+                      >
+                        <Plus className="w-5 h-5" />
+                        Add option
+                      </button>
+                      <select
+                        value={pollDuration}
+                        onChange={(e) => setPollDuration(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                      >
+                        <option>1 day</option>
+                        <option>3 days</option>
+                        <option>1 week</option>
+                        <option>2 weeks</option>
+                        <option>1 month</option>
+                      </select>
+                    </div>
+                  ) : (
+                    <div className="space-y-5">
+                      <input
+                        type="text"
+                        value={eventName}
+                        onChange={(e) => setEventName(e.target.value)}
+                        placeholder="Event name *"
+                        className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { value: "in-person" as const, label: "In-person", icon: <MapPin className="w-5 h-5" /> },
+                          { value: "virtual" as const, label: "Virtual", icon: <Link className="w-5 h-5" /> },
+                          { value: "hybrid" as const, label: "Hybrid", icon: <Globe className="w-5 h-5" /> },
+                        ].map((type) => (
+                          <button
+                            key={type.value}
+                            type="button"
+                            onClick={() => setEventType(type.value)}
+                            className={`inline-flex h-11 items-center gap-2 rounded-md border px-4 font-semibold shadow-sm transition-colors ${
+                              eventType === type.value
+                                ? "border-purple-600 bg-purple-600 text-white"
+                                : "border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
+                            }`}
+                          >
+                            {type.icon}
+                            {type.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm text-gray-500 mb-1">Date *</label>
+                          <div className="relative">
+                            <input
+                              type="date"
+                              value={eventDate}
+                              onChange={(e) => setEventDate(e.target.value)}
+                              className="w-full px-4 py-3 pr-12 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px] [&::-webkit-calendar-picker-indicator]:opacity-0"
+                            />
+                            <button
+                              type="button"
+                              onClick={openNativeInputPicker}
+                              className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-600 hover:bg-purple-50"
+                              aria-label="Open date picker"
+                            >
+                              <CalendarCheck className="w-5 h-5" strokeWidth={2.2} />
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-500 mb-1">Time *</label>
+                          <div className="relative">
+                            <input
+                              type="time"
+                              value={eventTime}
+                              onChange={(e) => setEventTime(e.target.value)}
+                              className="w-full px-4 py-3 pr-12 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px] [&::-webkit-calendar-picker-indicator]:opacity-0"
+                            />
+                            <button
+                              type="button"
+                              onClick={openNativeInputPicker}
+                              className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-600 hover:bg-purple-50"
+                              aria-label="Open time picker"
+                            >
+                              <AlarmClock className="w-5 h-5" strokeWidth={2.2} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      {(eventType === "in-person" || eventType === "hybrid") && (
+                        <div className="flex items-center gap-3">
+                          <MapPin className="w-5 h-5 text-gray-500 shrink-0" />
+                          <input
+                            type="text"
+                            value={eventLocation}
+                            onChange={(e) => setEventLocation(e.target.value)}
+                            placeholder="Add location *"
+                            className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                          />
+                        </div>
+                      )}
+                      {(eventType === "virtual" || eventType === "hybrid") && (
+                        <div className="flex items-center gap-3">
+                          <Link className="w-5 h-5 text-gray-500 shrink-0" />
+                          <input
+                            type="url"
+                            value={eventLink}
+                            onChange={(e) => setEventLink(e.target.value)}
+                            placeholder="Add virtual meeting link *"
+                            className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
               <div className="space-y-5">
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label htmlFor="post-content" className="block text-[15px] font-medium text-gray-800">
-                      Content <span className="text-red-500">*</span>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <label htmlFor="post-content" className="block text-[15px] font-medium text-gray-800 shrink-0">
+                      Content <span className="text-orange-500">*</span>
                     </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleRewriteAI}
-                        disabled={rewriteLoading || !getEditorText()}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 shadow-sm transition-colors text-sm disabled:opacity-50"
-                      >
-                        <Sparkles className="w-4 h-4 text-purple-500" />
-                        {rewriteLoading ? "Rewriting..." : "Rewrite with AI"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowAiPanel(!showAiPanel)}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 shadow-sm transition-colors text-sm"
-                      >
-                        <Sparkles className="w-4 h-4 text-indigo-500" />
-                        Write with AI
-                      </button>
-                    </div>
-                  </div>
-                  {rewriteError && (
-                    <p className="text-xs text-amber-600 mb-2">{rewriteError}</p>
-                  )}
 
-                  {showAiPanel && (
-                    <div className="mb-3 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
-                        <span className="text-xs text-green-700 font-medium">Groq AI active</span>
-                      </div>
-                      <div className="space-y-3">
-                        <textarea
+                    {showAiPanel ? (
+                      <div className="flex items-center gap-2 flex-1 max-w-[75%]">
+                        <input
+                          type="text"
                           value={aiPrompt}
                           onChange={(e) => {
                             setAiPrompt(e.target.value);
                             setAiError("");
                           }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && aiPrompt.trim() && !aiLoading) {
+                              e.preventDefault();
+                              handleGenerateAI();
+                            }
+                          }}
+                          autoFocus
                           placeholder="What do you want to write about?"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
-                          rows={2}
+                          className="flex-1 min-w-0 px-3 py-2 border border-violet-200 rounded-lg text-sm focus:ring-2 focus:ring-fuchsia-200 focus:border-fuchsia-400 outline-none"
                         />
-                        {aiError && (
-                          <p className="text-xs text-red-600">{aiError}</p>
-                        )}
-                        <div className="flex flex-wrap gap-2">
-                          <select
-                            value={aiTone}
-                            onChange={(e) => setAiTone(e.target.value as Tone)}
-                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                          >
-                            <option value="professional">Professional</option>
-                            <option value="casual">Casual</option>
-                            <option value="creative">Creative</option>
-                            <option value="formal">Formal</option>
-                          </select>
-                          <select
-                            value={aiLength}
-                            onChange={(e) => setAiLength(e.target.value as Length)}
-                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                          >
-                            <option value="short">Short</option>
-                            <option value="medium">Medium</option>
-                            <option value="long">Long</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={handleGenerateAI}
-                            disabled={aiLoading || !aiPrompt.trim()}
-                            className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50 transition-colors"
-                          >
-                            {aiLoading ? "Generating..." : "Generate"}
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={handleGenerateAI}
+                          disabled={aiLoading || !aiPrompt.trim()}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-purple-300 bg-white text-purple-600 hover:bg-purple-50 shadow-sm transition-colors text-sm disabled:opacity-50 shrink-0"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          {aiLoading ? "Generating..." : "Generate"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAiPanel(false);
+                            setAiPrompt("");
+                            setAiError("");
+                          }}
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
+                          title="Cancel"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
-                    </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setShowAiPanel(true)}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-purple-300 bg-white text-purple-600 hover:bg-purple-50 shadow-sm transition-colors text-sm"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        Write with AI
+                      </button>
+                    )}
+                  </div>
+
+                  {aiError && (
+                    <p className="text-xs text-red-600 mb-2">{aiError}</p>
                   )}
 
-                  <div className="border border-gray-300 rounded-xl overflow-hidden bg-white">
+                  <div className="relative border border-violet-100 rounded-xl overflow-visible bg-white shadow-sm">
+                    {rewriteError && (
+                      <p className="px-4 pt-2 text-xs text-amber-600">{rewriteError}</p>
+                    )}
+
                     <div className="hidden px-3 py-2 border-b border-gray-200 bg-white items-center gap-1.5 flex-wrap">
                       <select className="text-sm bg-transparent border-none outline-none px-1 py-1 text-gray-700 cursor-pointer">
                         <option>Normal</option>
@@ -1219,23 +1484,69 @@ syncContentFromEditor();
                       />
                     </div>
 
-                    <div
-                      ref={editorRef}
-                      contentEditable
-                      suppressContentEditableWarning
-                      onInput={syncContentFromEditor}
-                      onBlur={saveSelection}
-                      onMouseUp={saveSelection}
-                      onKeyUp={saveSelection}
-                      className={`min-h-[150px] px-4 py-4 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-gray-800 outline-none ${
-                        contentError ? "ring-2 ring-red-200" : ""
-                      }`}
-                      
-                    />
+                    <div className="relative">
+                      <div
+                        ref={editorRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        onInput={syncContentFromEditor}
+                        onBlur={saveSelection}
+                        onMouseUp={saveSelection}
+                        onKeyUp={saveSelection}
+                        className={`min-h-[215px] px-4 pb-9 pt-2 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-gray-800 outline-none [&>*:first-child]:mt-0 ${
+                          contentError ? "ring-2 ring-rose-200" : ""
+                        }`}
+                      />
+                      {hasEditorContent && (
+                        <div className="absolute bottom-8 right-4 z-20">
+                          {showRewriteMenu && (
+                            <div className="absolute bottom-[calc(100%+0.5rem)] right-0 w-40 overflow-visible rounded-lg border border-gray-200 bg-white py-1 shadow-xl before:absolute before:-bottom-1.5 before:right-4 before:h-3 before:w-3 before:rotate-45 before:border-b before:border-r before:border-gray-200 before:bg-white">
+                              {[
+                                { action: "shorter" as const, label: "Rewrite shorter", icon: <Minus className="w-3.5 h-3.5" /> },
+                                { action: "longer" as const, label: "Rewrite longer", icon: <Plus className="w-3.5 h-3.5" /> },
+                                { action: "tone" as const, label: "Change tone", icon: <Wand2 className="w-3.5 h-3.5" /> },
+                              ].map((item) => (
+                                <button
+                                  key={item.action}
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    saveSelection();
+                                  }}
+                                  onClick={() => handleRewriteAI(item.action)}
+                                  disabled={rewriteLoading}
+                                  className="relative z-10 flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-gray-700 hover:bg-purple-50 hover:text-purple-700 disabled:opacity-50"
+                                >
+                                  <span className="text-purple-500">{item.icon}</span>
+                                  {item.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            title="Rewrite options"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              saveSelection();
+                            }}
+                            onClick={() => setShowRewriteMenu((current) => !current)}
+                            disabled={rewriteLoading}
+                            aria-expanded={showRewriteMenu}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-600 text-white shadow-lg shadow-purple-200 transition-colors hover:bg-purple-700 disabled:opacity-60"
+                          >
+                            <Wand2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                      <span className="pointer-events-none absolute bottom-3 right-4 rounded-full bg-white/85 px-2 py-0.5 text-xs font-medium text-gray-400">
+                        {editorWordCount} / 3000
+                      </span>
+                    </div>
                     <div className="min-h-[58px] px-3 py-2 border-t border-gray-200 bg-white flex items-center gap-1.5 flex-wrap">
                       {showTextToolbar ? (
                         <>
-                          <button
+                          <button 
                             type="button"
                             title="Hide formatting"
                             onMouseDown={(e) => {
@@ -1280,6 +1591,7 @@ syncContentFromEditor();
                             insertEditorHtml("<span class=\"font-serif\">Equation</span>")
                           )}
                           {mediaButtons}
+                          {generateImageToolbarBtn}
                         </>
                       ) : (
                         <>
@@ -1296,6 +1608,7 @@ syncContentFromEditor();
                             Aa
                           </button>
                           {mediaButtons}
+                          {generateImageToolbarBtn}
                         </>
                       )}
                       <input
@@ -1411,9 +1724,16 @@ syncContentFromEditor();
                               type="date"
                               value={eventDate}
                               onChange={(e) => setEventDate(e.target.value)}
-                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                              className="w-full px-4 py-3 pr-12 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px] [&::-webkit-calendar-picker-indicator]:opacity-0"
                             />
-                            <Calendar className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
+                            <button
+                              type="button"
+                              onClick={openNativeInputPicker}
+                              className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-600 hover:bg-purple-50"
+                              aria-label="Open date picker"
+                            >
+                              <CalendarCheck className="w-5 h-5" strokeWidth={2.2} />
+                            </button>
                           </div>
                         </div>
                         <div>
@@ -1423,9 +1743,16 @@ syncContentFromEditor();
                               type="time"
                               value={eventTime}
                               onChange={(e) => setEventTime(e.target.value)}
-                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                              className="w-full px-4 py-3 pr-12 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px] [&::-webkit-calendar-picker-indicator]:opacity-0"
                             />
-                            <Clock className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
+                            <button
+                              type="button"
+                              onClick={openNativeInputPicker}
+                              className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-600 hover:bg-purple-50"
+                              aria-label="Open time picker"
+                            >
+                              <AlarmClock className="w-5 h-5" strokeWidth={2.2} />
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -1465,89 +1792,6 @@ syncContentFromEditor();
                 </div>
 
                 <div>
-                  <label htmlFor="post-tags" className="block text-[15px] font-medium text-gray-800 mb-2">
-                    Tags
-                  </label>
-                  <input
-                    id="post-tags"
-                    type="text"
-                    value={tags}
-                    onChange={(e) => setTags(e.target.value)}
-                    placeholder="technology, design, web3 (comma-separated)"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-[15px]"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label htmlFor="post-image-url" className="block text-[15px] font-medium text-gray-800">
-                      Cover Image
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowImagePanel(!showImagePanel)}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 shadow-sm transition-colors text-sm"
-                      >
-                        <Image className="w-4 h-4 text-purple-500" />
-                        Generate Image
-                      </button>
-                    </div>
-                  </div>
-
-                  {showImagePanel && (
-                    <div className="mb-3 p-4 bg-purple-50 border border-purple-200 rounded-xl">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
-                        <span className="text-xs text-green-700 font-medium">
-                          AI image generation active (server-side, free)
-                        </span>
-                      </div>
-                      <div className="space-y-3">
-                        <textarea
-                          value={imagePrompt}
-                          onChange={(e) => setImagePrompt(e.target.value)}
-                          placeholder="Describe the image you want..."
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none resize-none"
-                          rows={2}
-                        />
-                        <div className="flex flex-wrap gap-2">
-                          <select
-                            value={imageStyle}
-                            onChange={(e) =>
-                              setImageStyle(e.target.value as typeof imageStyle)
-                            }
-                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                          >
-                            <option value="realistic">Realistic</option>
-                            <option value="artistic">Artistic</option>
-                            <option value="minimal">Minimal</option>
-                            <option value="vibrant">Vibrant</option>
-                          </select>
-                          <select
-                            value={imageSize}
-                            onChange={(e) =>
-                              setImageSize(e.target.value as typeof imageSize)
-                            }
-                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                          >
-                            <option value="small">Small</option>
-                            <option value="medium">Medium</option>
-                            <option value="large">Large</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={handleGenerateImage}
-                            disabled={imageGenLoading || !imagePrompt.trim()}
-                            className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50 transition-colors"
-                          >
-                            {imageGenLoading ? "Generating..." : "Generate"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
                   {(imageUrl || imageError) && (
                     <div
                       className="mt-2 rounded-xl border border-gray-200 overflow-hidden bg-gray-50"
@@ -1603,6 +1847,7 @@ syncContentFromEditor();
                   )}
                 </div>
               </div>
+              )
             ) : (
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="p-6">
@@ -1626,32 +1871,25 @@ syncContentFromEditor();
                         : '<span class="text-gray-400 italic">Your post content will appear here...</span>',
                     }}
                   />
-                  {tags && (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {tags.split(",").map((tag) =>
-                        tag.trim() ? (
-                          <span
-                            key={tag.trim()}
-                            className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm"
-                          >
-                            #{tag.trim()}
-                          </span>
-                        ) : null,
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
             )}
           </div>
 
-          <div className="flex justify-end gap-3 px-7 py-5 border-t border-gray-200 bg-white shrink-0">
+          <div className="flex justify-end gap-3 px-7 py-5 border-t border-violet-100 bg-white shrink-0">
             <button
               type="button"
               onClick={handleClose}
               className="px-5 py-2.5 text-gray-700 hover:bg-gray-100 rounded-xl transition-colors text-[15px] font-medium"
             >
               Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab(activeTab === "write" ? "preview" : "write")}
+              className="px-5 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 transition-colors text-[15px] font-medium shadow-sm"
+            >
+              {activeTab === "write" ? "Preview" : "Edit"}
             </button>
             <button
               type="button"
@@ -1675,4 +1913,4 @@ syncContentFromEditor();
   );
 
   return createPortal(modalContent, document.body);
-};
+}
