@@ -73,57 +73,92 @@ function buildUnsplashQuery(prompt: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt } = await req.json() as { prompt: string };
+    console.log("[generate-image] Request received");
+
+    let body;
+    try {
+      body = await req.json();
+    } catch (e) {
+      console.error("[generate-image] JSON parse error:", e);
+      return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
+    }
+
+    const { prompt } = body as { prompt?: string };
 
     if (!prompt?.trim()) {
+      console.warn("[generate-image] Empty prompt");
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
+    console.log("[generate-image] Prompt:", prompt.slice(0, 50));
+
     const accessKey = process.env.UNSPLASH_ACCESS_KEY;
     if (!accessKey) {
+      console.error("[generate-image] UNSPLASH_ACCESS_KEY is missing from environment");
       return NextResponse.json(
-        { error: "UNSPLASH_ACCESS_KEY not set in .env.local" },
+        { error: "UNSPLASH_ACCESS_KEY not configured. Please add it to Vercel environment variables." },
         { status: 500 },
       );
     }
 
+    console.log("[generate-image] Using Unsplash API with key length:", accessKey.length);
+
     const query = buildUnsplashQuery(prompt);
+    console.log("[generate-image] Built query:", query);
 
     const url = `https://api.unsplash.com/photos/random?query=${encodeURIComponent(query || prompt.trim())}&orientation=landscape&content_filter=high`;
+    console.log("[generate-image] Unsplash URL:", url.slice(0, 100) + "...");
 
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Client-ID ${accessKey}`,
-        "Accept-Version": "v1",
-      },
-    });
+    let res;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Authorization: `Client-ID ${accessKey}`,
+          "Accept-Version": "v1",
+        },
+      });
+      console.log("[generate-image] Unsplash response status:", res.status);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unknown fetch error";
+      console.error("[generate-image] Fetch error:", msg);
+      return NextResponse.json({ error: `Failed to reach Unsplash API: ${msg}` }, { status: 502 });
+    }
 
     if (!res.ok) {
-      const errText = await res.text();
-      const errorMessage = errText
-        ? `Unsplash returned ${res.status}: ${errText}`
-        : `Unsplash returned ${res.status} ${res.statusText}`;
-      console.error("generate-image failed:", errorMessage, { url, prompt });
+      let errText = "";
+      try {
+        errText = await res.text();
+      } catch {
+        errText = "(could not read error body)";
+      }
+      const errorMessage = `Unsplash API returned ${res.status}: ${errText}`;
+      console.error("[generate-image]", errorMessage);
       return NextResponse.json({ error: errorMessage }, { status: res.status });
     }
 
-    const data = await res.json() as {
-      urls: { regular: string; full: string };
-      alt_description: string | null;
-    };
-
-    if (!data?.urls?.regular) {
-      const errorMessage = "Unsplash response did not include a valid image URL.";
-      console.error("generate-image invalid response:", data, { url, prompt });
-      return NextResponse.json({ error: errorMessage }, { status: 502 });
+    let data;
+    try {
+      data = await res.json() as {
+        urls?: { regular?: string; full?: string };
+        alt_description?: string | null;
+      };
+      console.log("[generate-image] Parsed Unsplash response");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unknown JSON parse error";
+      console.error("[generate-image] JSON parse error:", msg);
+      return NextResponse.json({ error: `Failed to parse Unsplash response: ${msg}` }, { status: 502 });
     }
 
+    if (!data?.urls?.regular) {
+      console.error("[generate-image] Invalid response structure:", JSON.stringify(data).slice(0, 200));
+      return NextResponse.json({ error: "Unsplash did not return a valid image URL" }, { status: 502 });
+    }
+
+    console.log("[generate-image] Success! Returning image URL");
     return NextResponse.json({ url: data.urls.regular });
   } catch (err) {
-    console.error("generate-image exception:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to fetch image" },
-      { status: 500 },
-    );
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    console.error("[generate-image] Uncaught exception:", msg, err);
+    return NextResponse.json({ error: `Server error: ${msg}` }, { status: 500 });
   }
 }
