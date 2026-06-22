@@ -1,6 +1,7 @@
+
 import type { CreatePostInput } from "@/types/post";
 import {
-  AlarmClock,AtSign,BarChart3,Braces,Calendar,CalendarCheck, ChevronDown, Clock,FileText,Globe,Image,Link,Link2,List,ListOrdered,MapPin,
+  AtSign,BarChart3,Braces,Calendar, ChevronDown, Clock,FileText,Globe,Image,Link,Link2,List,ListOrdered,MapPin,
   Minus,Plus,Redo2,RefreshCw,Sigma,Sparkles,Undo2,Video,Wand2,X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -57,28 +58,8 @@ function escapeHtml(str: string) {
     .replace(/>/g, "&gt;");
 }
 
-function escapeAttribute(str: string) {
-  return escapeHtml(str).replace(/"/g, "&quot;");
-}
-
-function normalizeUrl(url: string) {
-  const trimmed = url.trim();
-  if (!trimmed) return "";
-  if (/^(https?:|mailto:|tel:)/i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
-}
-
 function parseMarkdown(text: string): string {
   let html = escapeHtml(text);
-
-  html = html.replace(
-    /^#\s+(.*?)$/gm,
-    '<h1 class="text-2xl font-bold text-gray-900 mt-0 mb-3">$1</h1>',
-  );
-  html = html.replace(
-    /^##\s+(.*?)$/gm,
-    '<h2 class="text-xl font-bold text-gray-900 mt-0 mb-3">$1</h2>',
-  );
 
   html = html.replace(
     /^> (.*?)$/gm,
@@ -118,21 +99,14 @@ function parseMarkdown(text: string): string {
   html = html.replace(/~~(.*?)~~/g, "<s>$1</s>");
   html = html.replace(
     /\[(.*?)\]\((.*?)\)/g,
-    '<a href="$2" class="text-indigo-600 hover:underline cursor-pointer" target="_blank" rel="noreferrer">$1</a>',
+    '<a href="$2" class="text-indigo-600 hover:underline" target="_blank" rel="noreferrer">$1</a>',
   );
   html = html.replace(/\n/g, "<br />");
   return html;
 }
 
-function trimLeadingEditorHtml(html: string): string {
-  return html.replace(
-    /^(\s|&nbsp;|<br\s*\/?>|<div>\s*(?:<br\s*\/?>)?\s*<\/div>|<p>\s*(?:<br\s*\/?>)?\s*<\/p>)+/gi,
-    "",
-  );
-}
-
 function markdownToHtmlForEditor(text: string): string {
-  return trimLeadingEditorHtml(parseMarkdown(text));
+  return parseMarkdown(text);
 }
 
 function getWordCount(text: string): number {
@@ -146,84 +120,6 @@ function stripMarkdown(text: string): string {
     .replace(/(?<!\*)\*(?!\s)(.*?)\*(?!\*)/g, "$1")
     .replace(/~~(.*?)~~/g, "$1")
     .replace(/`(.*?)`/g, "$1");
-}
-
-function normalizeTitleText(text: string) {
-  return stripMarkdown(text)
-    .replace(/<[^>]+>/g, "")
-    .replace(/^[\s"'`*_#-]+|[\s"'`*_.!?,:;-]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function similarityKey(text: string) {
-  return normalizeTitleText(text)
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function extractTopicTitle(prompt: string, body: string) {
-  const source = `${prompt} ${body}`;
-  const secondHomeMatch = source.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b[\s\S]{0,80}\bsecond home\b/i);
-  if (secondHomeMatch) return `${secondHomeMatch[1]}, My Second Home`;
-
-  const placeMatch = source.match(/\b(?:love|like|miss|visit|visited|exploring|explore)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/);
-  if (placeMatch) return `${placeMatch[1]} Moments`;
-
-  const words = normalizeTitleText(prompt)
-    .replace(/\b(i|we|you|they|love|like|hate|dislike|about|write|post|content|the|a|an|and|or|but|is|are|was|were|it|its|my|our|your)\b/gi, " ")
-    .split(/\s+/)
-    .filter((word) => word.length > 2)
-    .slice(0, 4);
-
-  const title = words
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(" ");
-
-  return title || "A Fresh Thought";
-}
-
-function normalizeGeneratedPost(generated: string, prompt: string) {
-  const lines = generated
-    .trim()
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (!lines.length) return "";
-
-  let title = "";
-  let bodyLines = lines;
-  const firstLine = normalizeTitleText(lines[0]);
-  const secondLineKey = similarityKey(lines[1] ?? "");
-  const firstLineKey = similarityKey(firstLine);
-  const firstLineLooksLikeTitle =
-    /^#{1,6}\s+/.test(lines[0]) ||
-    lines[0].startsWith("**") ||
-    (firstLine.length <= 90 && secondLineKey.startsWith(firstLineKey));
-
-  if (firstLineLooksLikeTitle) {
-    title = firstLine;
-    bodyLines = lines.slice(1);
-  }
-
-  const body = bodyLines.join("\n\n");
-  const firstSentence = body.match(/^[^.!?]+[.!?]?/)?.[0] ?? "";
-
-  if (!title || similarityKey(firstSentence).startsWith(similarityKey(title))) {
-    title = extractTopicTitle(prompt, body);
-  }
-
-  const uniqueBodyLines = bodyLines.filter((line, index) => {
-    if (index === 0) return true;
-    const previous = similarityKey(bodyLines[index - 1]);
-    const current = similarityKey(line);
-    return !(current.startsWith(previous) || previous.startsWith(current));
-  });
-
-  return `# ${title}\n\n${uniqueBodyLines.join("\n\n")}`;
 }
 
 function generateLocalContent(topic: string, tone: Tone, length: Length): string {
@@ -511,7 +407,8 @@ export default function CreatePostModal({
   const [contentError, setContentError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showTextToolbar, setShowTextToolbar] = useState(false);
-  const [textEditingOnly, setTextEditingOnly] = useState(false);
+  const [showLinkPrompt, setShowLinkPrompt] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
   const [activeMediaComposer, setActiveMediaComposer] = useState<MediaComposer>(null);
   const [pollQuestion, setPollQuestion] = useState("");
   const [pollOptions, setPollOptions] = useState(["", ""]);
@@ -580,22 +477,6 @@ export default function CreatePostModal({
 
   const getEditorText = () => editorRef.current?.innerText.trim() ?? "";
 
-  const openNativeInputPicker = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const input = e.currentTarget.parentElement?.querySelector("input");
-    if (!(input instanceof HTMLInputElement)) return;
-
-    input.focus();
-    input.showPicker?.();
-  };
-
-  const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const link = (e.target as HTMLElement).closest("a");
-    if (!(link instanceof HTMLAnchorElement) || !editorRef.current?.contains(link)) return;
-
-    e.preventDefault();
-    window.open(link.href, "_blank", "noopener,noreferrer");
-  };
-
   const getImageContentText = () => {
     const liveText = getEditorText();
     if (liveText && liveText !== "Share your thoughts.") return liveText;
@@ -613,6 +494,7 @@ export default function CreatePostModal({
     const stripped = content.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
     return stripped.length > 0;
   })();
+
   const editorWordCount = getWordCount(getImageContentText());
 
   const saveSelection = () => {
@@ -672,39 +554,6 @@ export default function CreatePostModal({
     insertNodeAtSelection(frag);
   };
 
-  const applyHeading2 = () => {
-    const el = editorRef.current;
-    if (!el) return;
-    el.focus();
-    restoreSelection();
-
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return;
-
-    const selectedText = sel.toString().trim();
-    replaceSelectionWithHtml(
-      `<h2 class="text-xl font-bold text-gray-900 mt-0 mb-3">${escapeHtml(selectedText || "Heading 2")}</h2>`,
-    );
-  };
-
-  const applyLink = () => {
-    const el = editorRef.current;
-    if (!el) return;
-    el.focus();
-    restoreSelection();
-
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return;
-
-    const selectedText = sel.toString().trim();
-    const url = normalizeUrl(window.prompt("Enter URL") ?? "");
-    if (!url) return;
-
-    replaceSelectionWithHtml(
-      `<a href="${escapeAttribute(url)}" class="text-indigo-600 underline cursor-pointer" target="_blank" rel="noreferrer">${escapeHtml(selectedText || url)}</a>`,
-    );
-  };
-
   const applyFormat = (action: FormatAction) => {
     const el = editorRef.current;
     if (!el) return;
@@ -718,7 +567,10 @@ export default function CreatePostModal({
     if (action === "underline") return replaceSelectionWithHtml(`<u>${selectedText || formatMap.underline.placeholder}</u>`);
     if (action === "strikethrough") return replaceSelectionWithHtml(`<s>${selectedText || formatMap.strikethrough.placeholder}</s>`);
     if (action === "code") return replaceSelectionWithHtml(`<code class="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono">${selectedText || formatMap.code.placeholder}</code>`);
-    if (action === "link") return applyLink();
+    if (action === "link") {
+      setShowLinkPrompt(true);
+      return;
+    }
     if (action === "quote") return replaceSelectionWithHtml(`<blockquote class="border-l-4 border-indigo-300 pl-4 italic text-gray-500 my-2">${selectedText || formatMap.quote.placeholder}</blockquote>`);
     if (action === "ul") return replaceSelectionWithHtml(`<ul class="list-disc ml-6 my-2"><li>${selectedText || formatMap.ul.placeholder}</li></ul>`);
     if (action === "ol") return replaceSelectionWithHtml(`<ol class="list-decimal ml-6 my-2"><li>${selectedText || formatMap.ol.placeholder}</li></ol>`);
@@ -732,6 +584,18 @@ export default function CreatePostModal({
     sel.removeAllRanges();
     sel.addRange(range);
     syncContentFromEditor();
+  };
+
+  const handleLinkSubmit = () => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    restoreSelection();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const selectedText = sel.toString();
+    const url = linkUrl.trim() || "https://example.com";
+    return replaceSelectionWithHtml(`<a href="${url}" class="text-indigo-600 underline" target="_blank" rel="noreferrer">${selectedText || formatMap.link.placeholder}</a>`);
   };
 
   const insertImageAtCursor = (src: string, alt = "Inserted image") => {
@@ -886,16 +750,9 @@ export default function CreatePostModal({
     return parts.filter(Boolean).join("\n\n");
   };
 
-  const getGeneratedTitle = (sourceContent = "") => {
-    const h1Match = sourceContent.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-    const heading = normalizeTitleText(h1Match?.[1] ?? "");
-    if (heading) return heading.slice(0, 80);
-
-    const plainText = normalizeTitleText(
-      sourceContent || getEditorText() || pollQuestion.trim() || eventName.trim(),
-    );
-    const firstSentence = plainText.match(/^[^.!?]+[.!?]?/)?.[0] ?? plainText;
-    return normalizeTitleText(firstSentence).slice(0, 80) || "Post";
+  const getGeneratedTitle = () => {
+    const text = getEditorText() || pollQuestion.trim() || eventName.trim();
+    return (text || "Create New Post").slice(0, 80);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -945,12 +802,9 @@ export default function CreatePostModal({
         return;
       }
 
-      const formattedGenerated = markdownToHtmlForEditor(
-        normalizeGeneratedPost(generated, aiPrompt.trim()),
-      );
       const newContent = content
-        ? trimLeadingEditorHtml(`${content}<br /><br />${formattedGenerated}`)
-        : trimLeadingEditorHtml(formattedGenerated);
+        ? `${content}\n\n${generated}`
+        : generated;
 
       setContent(newContent);
 
@@ -1054,7 +908,7 @@ export default function CreatePostModal({
     setIsSubmitting(true);
     try {
       await onSubmit({
-        title: getGeneratedTitle(finalContent),
+        title: getGeneratedTitle(),
         content: finalContent,
         author: "Anonymous",
         imageUrl: imageUrl.trim() || undefined,
@@ -1081,8 +935,9 @@ export default function CreatePostModal({
     setContentError(false);
     setActiveTab("write");
     setShowTextToolbar(false);
-    setTextEditingOnly(false);
     setShowRewriteMenu(false);
+    setShowLinkPrompt(false);
+    setLinkUrl("");
     setActiveMediaComposer(null);
     setPollQuestion("");
     setPollOptions(["", ""]);
@@ -1102,6 +957,7 @@ export default function CreatePostModal({
     onClose();
   };
 
+  // ── Toolbar buttons ── smaller size matching reference code
   const toolbarBtn = (
     action: FormatAction,
     label: string,
@@ -1169,7 +1025,7 @@ export default function CreatePostModal({
 
   const mediaButtons = (
     <>
-      {mediaToolBtn("Insert Image", <Image className="w-3.5 h-3.5" />, handleInsertImageClick, "text-violet-600")}
+      {mediaToolBtn("Insert Image", <Image className="w-3.5 h-3.5" />, handleInsertImageClick, "text-blue-600")}
       {mediaToolBtn("Insert Video", <Video className="w-3.5 h-3.5" />, handleInsertVideoClick, "text-green-600")}
       {mediaToolBtn("Insert PDF", <FileText className="w-3.5 h-3.5" />, handleInsertPdfClick, "text-orange-600")}
       {mediaToolBtn("Create Poll", <BarChart3 className="w-3.5 h-3.5" />, () =>
@@ -1242,8 +1098,8 @@ export default function CreatePostModal({
         onKeyDown={(e) => e.key === "Escape" && handleClose()}
       />
       <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: "40rem" }}>
-        <div className="relative w-full max-h-[75vh] flex flex-col bg-white rounded-[18px] shadow-2xl border border-violet-100 overflow-hidden">
-          <div className="flex items-center justify-between px-7 py-5 border-b border-violet-100 shrink-0">
+        <div className="relative w-full max-h-[75vh] flex flex-col bg-white rounded-[18px] shadow-2xl border border-gray-200 overflow-hidden">
+          <div className="flex items-center justify-between px-7 py-5 border-b border-gray-200 shrink-0">
             <h2 className="text-[22px] font-semibold text-gray-900">Create New Post</h2>
             <button
               type="button"
@@ -1254,9 +1110,7 @@ export default function CreatePostModal({
             </button>
           </div>
 
-          <div className={`flex-1 px-7 pb-6 pt-5 ${
-            activeTab === "write" && !activeMediaComposer && !imageUrl ? "overflow-hidden" : "overflow-y-auto"
-          }`}>
+<div className="flex-1 overflow-y-auto px-7 pb-6 pt-5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             {activeTab === "write" ? (
               activeMediaComposer ? (
                 <div className="min-h-[calc(75vh-10rem)]">
@@ -1373,16 +1227,9 @@ export default function CreatePostModal({
                               type="date"
                               value={eventDate}
                               onChange={(e) => setEventDate(e.target.value)}
-                              className="w-full px-4 py-3 pr-12 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px] [&::-webkit-calendar-picker-indicator]:opacity-0"
+                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
                             />
-                            <button
-                              type="button"
-                              onClick={openNativeInputPicker}
-                              className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-600 hover:bg-purple-50"
-                              aria-label="Open date picker"
-                            >
-                              <CalendarCheck className="w-5 h-5" strokeWidth={2.2} />
-                            </button>
+                            <Calendar className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
                           </div>
                         </div>
                         <div>
@@ -1392,16 +1239,9 @@ export default function CreatePostModal({
                               type="time"
                               value={eventTime}
                               onChange={(e) => setEventTime(e.target.value)}
-                              className="w-full px-4 py-3 pr-12 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px] [&::-webkit-calendar-picker-indicator]:opacity-0"
+                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
                             />
-                            <button
-                              type="button"
-                              onClick={openNativeInputPicker}
-                              className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-600 hover:bg-purple-50"
-                              aria-label="Open time picker"
-                            >
-                              <AlarmClock className="w-5 h-5" strokeWidth={2.2} />
-                            </button>
+                            <Clock className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
                           </div>
                         </div>
                       </div>
@@ -1434,16 +1274,16 @@ export default function CreatePostModal({
                 </div>
               ) : (
               <div className="space-y-5">
-                <div className="min-h-0">
+                <div>
                   <div className="flex items-center justify-between gap-2 mb-2">
                     {!showAiPanel && (
                       <label htmlFor="post-content" className="block text-[15px] font-medium text-gray-800 shrink-0">
-                        Content <span className="text-orange-500">*</span>
+                        Content <span className="text-red-500">*</span>
                       </label>
                     )}
 
                     {showAiPanel ? (
-                      <div className="flex w-full items-center gap-2">
+                      <div className="flex items-center gap-2 flex-1">
                         <input
                           type="text"
                           value={aiPrompt}
@@ -1459,7 +1299,7 @@ export default function CreatePostModal({
                           }}
                           autoFocus
                           placeholder="What do you want to write about?"
-                          className="flex-1 min-w-0 px-3 py-2 border border-violet-200 rounded-lg text-sm focus:ring-2 focus:ring-fuchsia-200 focus:border-fuchsia-400 outline-none"
+                          className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                         />
                         <button
                           type="button"
@@ -1477,10 +1317,10 @@ export default function CreatePostModal({
                             setAiPrompt("");
                             setAiError("");
                           }}
-                          className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
+                          className="h-8 w-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
                           title="Cancel"
                         >
-                          <X className="w-4 h-4" />
+                          <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     ) : (
@@ -1499,27 +1339,27 @@ export default function CreatePostModal({
                     <p className="text-xs text-red-600 mb-2">{aiError}</p>
                   )}
 
-                  <div className="relative border border-violet-100 rounded-xl overflow-visible bg-white shadow-sm">
+                  <div className="relative border border-gray-300 rounded-xl overflow-visible bg-white">
                     {rewriteError && (
                       <p className="px-4 pt-2 text-xs text-amber-600">{rewriteError}</p>
                     )}
 
-                    <div className="hidden px-3 py-2 border-b border-gray-200 bg-white items-center gap-1.5 flex-wrap">
+                    <div className="hidden px-3 py-2 border-b border-gray-200 bg-white items-center gap-1 flex-wrap">
                       <select className="text-sm bg-transparent border-none outline-none px-1 py-1 text-gray-700 cursor-pointer">
                         <option>Normal</option>
                         <option>Heading 1</option>
                         <option>Heading 2</option>
                       </select>
-                      <div className="w-px h-5 bg-gray-300 mx-1" />
-                      {toolbarBtn("bold", "Bold", "B", "font-bold text-sm")}
-                      {toolbarBtn("italic", "Italic", "I", "italic text-sm")}
-                      {toolbarBtn("underline", "Underline", "U", "underline text-sm")}
-                      {toolbarBtn("strikethrough", "Strikethrough", "S", "line-through text-sm")}
-                      <div className="w-px h-5 bg-gray-300 mx-1" />
-                      {toolbarBtn("ul", "Bullet List", "•", "text-lg")}
-                      {toolbarBtn("ol", "Numbered List", "1.", "text-sm")}
-                      {toolbarBtn("quote", "Quote", "\"", "text-lg")}
-                      {toolbarBtn("code", "Code", <span className="font-mono text-xs">&lt;/&gt;</span>)}
+                      <div className="w-px h-5 bg-gray-300 mx-0.5" />
+                      {toolbarBtn("bold", "Bold", "B", "font-bold")}
+                      {toolbarBtn("italic", "Italic", "I", "italic")}
+                      {toolbarBtn("underline", "Underline", "U", "underline")}
+                      {toolbarBtn("strikethrough", "Strikethrough", "S", "line-through")}
+                      <div className="w-px h-5 bg-gray-300 mx-0.5" />
+                      {toolbarBtn("ul", "Bullet List", "•")}
+                      {toolbarBtn("ol", "Numbered List", "1.")}
+                      {toolbarBtn("quote", "Quote", "\"")}
+                      {toolbarBtn("code", "Code", <span className="font-mono">&lt;/&gt;</span>)}
                       {toolbarBtn("link", "Link", "🔗")}
                       <button
                         type="button"
@@ -1529,9 +1369,9 @@ export default function CreatePostModal({
                           saveSelection();
                         }}
                         onClick={handleInsertImageClick}
-                        className="w-8 h-8 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-800 transition-colors"
+                        className="w-7 h-7 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-800 transition-colors"
                       >
-                        <Image className="w-4 h-4" />
+                        <Image className="w-3.5 h-3.5" />
                       </button>
                       <input
                         ref={fileInputRef}
@@ -1542,6 +1382,7 @@ export default function CreatePostModal({
                       />
                     </div>
 
+                    {/* Editor with scroll + floating rewrite button */}
                     <div className="relative">
                       <div
                         ref={editorRef}
@@ -1549,13 +1390,14 @@ export default function CreatePostModal({
                         suppressContentEditableWarning
                         onInput={syncContentFromEditor}
                         onBlur={saveSelection}
-                        onClick={handleEditorClick}
                         onMouseUp={saveSelection}
                         onKeyUp={saveSelection}
-                        className={`h-[calc(75vh-20rem)] min-h-[215px] overflow-y-auto px-4 pb-9 pt-2 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-gray-800 outline-none [&>*:first-child]:mt-0 hide-scrollbar ${
-                          contentError ? "ring-2 ring-rose-200" : ""
-                        }`}
-                      />
+                       className={`h-[calc(75vh-20rem)] min-h-[215px] overflow-y-auto px-4 pb-9 pt-4 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-gray-800 outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] ${
+  contentError ? "ring-2 ring-red-200" : ""
+}`}
+                      /> 
+
+                      {/* Floating rewrite button — bottom-right of editor */}
                       {hasEditorContent && (
                         <div className="absolute bottom-8 right-4 z-20">
                           {showRewriteMenu && (
@@ -1598,26 +1440,28 @@ export default function CreatePostModal({
                           </button>
                         </div>
                       )}
+
+                      {/* Word count */}
                       <span className="pointer-events-none absolute bottom-3 right-4 rounded-full bg-white/85 px-2 py-0.5 text-xs font-medium text-gray-400">
                         {editorWordCount} / 3000
                       </span>
                     </div>
+
                     <div className="min-h-[52px] px-2 py-1.5 border-t border-gray-200 bg-white flex items-center gap-1 flex-wrap">
-                      {textEditingOnly ? (
+                      {showTextToolbar ? (
                         <>
                           <button 
                             type="button"
-                            title="Hide text options"
+                            title="Hide formatting"
                             onMouseDown={(e) => {
                               e.preventDefault();
                               saveSelection();
                             }}
-                            onClick={() => setTextEditingOnly(false)}
+                            onClick={() => setShowTextToolbar(false)}
                             className="w-7 h-7 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center text-white transition-colors"
                           >
                             <ChevronDown className="w-4 h-4" />
                           </button>
-                          <div className="w-px h-6 bg-gray-300 mx-0.5" />
                           {editorToolBtn("Undo", <Undo2 className="w-3.5 h-3.5" />, () => {
                             document.execCommand("undo");
                             syncContentFromEditor();
@@ -1627,12 +1471,18 @@ export default function CreatePostModal({
                             syncContentFromEditor();
                           }, "text-gray-400")}
                           <div className="w-px h-6 bg-gray-300 mx-0.5" />
-                          {editorToolBtn("Heading 2", "H2", () =>
-                            applyHeading2(),
-                            "font-bold text-sm"
-                          )}
-                          {toolbarBtn("bold", "Bold", "B", "font-bold text-sm")}
-                          {toolbarBtn("italic", "Italic", "I", "italic text-sm")}
+                          {editorToolBtn("Heading 1", "H1", () => {
+                            const sel = window.getSelection();
+                            if (!sel || sel.rangeCount === 0) return;
+                            const selectedText = sel.toString();
+                            if (selectedText) {
+                              insertEditorHtml(`<h1 class="text-2xl font-bold my-2">${selectedText}</h1>`);
+                            } else {
+                              insertEditorHtml("<h1 class=\"text-2xl font-bold my-2\">Heading 1</h1>");
+                            }
+                          }, "font-bold")}
+                          {toolbarBtn("bold", "Bold", "B", "font-bold")}
+                          {toolbarBtn("italic", "Italic", "I", "italic")}
                           <div className="w-px h-6 bg-gray-300 mx-0.5" />
                           {toolbarBtn("ul", "Bullet List", <List className="w-3.5 h-3.5" />)}
                           {toolbarBtn("ol", "Numbered List", <ListOrdered className="w-3.5 h-3.5" />)}
@@ -1644,12 +1494,13 @@ export default function CreatePostModal({
                           {editorToolBtn("Mention", <AtSign className="w-3.5 h-3.5" />, () =>
                             insertEditorHtml("<span>@mention</span>")
                           )}
-                          {toolbarBtn("quote", "Quote", '"', "text-sm")}
-                          {toolbarBtn("strikethrough", "Special", "[*]", "font-mono text-xs")}
+                          {toolbarBtn("quote", "Quote", '"')}
+                          {toolbarBtn("strikethrough", "Special", "[*]", "font-mono")}
                           {toolbarBtn("code", "Code", <Braces className="w-3.5 h-3.5" />)}
                           {editorToolBtn("Equation", <Sigma className="w-3.5 h-3.5" />, () =>
                             insertEditorHtml("<span class=\"font-serif\">Equation</span>")
                           )}
+                          {generateImageToolbarBtn}
                         </>
                       ) : (
                         <>
@@ -1660,7 +1511,7 @@ export default function CreatePostModal({
                               e.preventDefault();
                               saveSelection();
                             }}
-                            onClick={() => setTextEditingOnly(true)}
+                            onClick={() => setShowTextToolbar(true)}
                             className="w-7 h-7 rounded-md hover:bg-gray-100 flex items-center justify-center text-gray-800 font-semibold transition-colors text-sm"
                           >
                             Aa
@@ -1692,6 +1543,52 @@ export default function CreatePostModal({
                       />
                     </div>
                   </div>
+
+                  {showLinkPrompt && (
+                    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50">
+                      <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
+                        <h3 className="text-lg font-semibold mb-4">Enter URL</h3>
+                        <input
+                          type="url"
+                          value={linkUrl}
+                          onChange={(e) => setLinkUrl(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              handleLinkSubmit();
+                              setShowLinkPrompt(false);
+                              setLinkUrl("");
+                            }
+                          }}
+                          placeholder="https://example.com"
+                          autoFocus
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-purple-400"
+                        />
+                        <div className="flex gap-3 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowLinkPrompt(false);
+                              setLinkUrl("");
+                            }}
+                            className="px-4 py-2 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleLinkSubmit();
+                              setShowLinkPrompt(false);
+                              setLinkUrl("");
+                            }}
+                            className="px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700"
+                          >
+                            Add Link
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {activeMediaComposer === "poll" && (
                     <div className="mt-3 space-y-3">
@@ -1782,16 +1679,9 @@ export default function CreatePostModal({
                               type="date"
                               value={eventDate}
                               onChange={(e) => setEventDate(e.target.value)}
-                              className="w-full px-4 py-3 pr-12 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px] [&::-webkit-calendar-picker-indicator]:opacity-0"
+                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
                             />
-                            <button
-                              type="button"
-                              onClick={openNativeInputPicker}
-                              className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-600 hover:bg-purple-50"
-                              aria-label="Open date picker"
-                            >
-                              <CalendarCheck className="w-5 h-5" strokeWidth={2.2} />
-                            </button>
+                            <Calendar className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
                           </div>
                         </div>
                         <div>
@@ -1801,16 +1691,9 @@ export default function CreatePostModal({
                               type="time"
                               value={eventTime}
                               onChange={(e) => setEventTime(e.target.value)}
-                              className="w-full px-4 py-3 pr-12 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px] [&::-webkit-calendar-picker-indicator]:opacity-0"
+                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
                             />
-                            <button
-                              type="button"
-                              onClick={openNativeInputPicker}
-                              className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-600 hover:bg-purple-50"
-                              aria-label="Open time picker"
-                            >
-                              <AlarmClock className="w-5 h-5" strokeWidth={2.2} />
-                            </button>
+                            <Clock className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
                           </div>
                         </div>
                       </div>
@@ -1934,7 +1817,7 @@ export default function CreatePostModal({
             )}
           </div>
 
-          <div className="flex justify-end gap-3 px-7 py-5 border-t border-violet-100 bg-white shrink-0">
+          <div className="flex justify-end gap-3 px-7 py-5 border-t border-gray-200 bg-white shrink-0">
             <button
               type="button"
               onClick={handleClose}
@@ -1972,3 +1855,5 @@ export default function CreatePostModal({
 
   return createPortal(modalContent, document.body);
 }
+
+
