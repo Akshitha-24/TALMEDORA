@@ -11,4 +11,7 @@
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }
+[contenteditable="true"] a {
+  cursor: pointer;
+}
 

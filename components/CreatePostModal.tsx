@@ -122,6 +122,47 @@ function stripMarkdown(text: string): string {
     .replace(/`(.*?)`/g, "$1");
 }
 
+/**
+ * NEW: Formats AI-generated content so the first non-empty line becomes a
+ * clear title and the rest becomes the description, with proper spacing.
+ */
+function formatAiContentAsTitleAndDescription(generated: string): string {
+  const cleaned = generated.replace(/\r\n/g, "\n").trim();
+  if (!cleaned) return "";
+
+  // Split into non-empty lines, keep paragraph structure for the body.
+  const lines = cleaned.split("\n");
+  let firstIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim()) {
+      firstIdx = i;
+      break;
+    }
+  }
+  if (firstIdx === -1) return "";
+
+  const rawTitle = lines[firstIdx].trim();
+  // Strip markdown markers (#, **, *, etc.) from the title.
+  const titleText = stripMarkdown(rawTitle).replace(/^#+\s*/, "").trim();
+
+  // Remaining lines = description body. Keep blank lines so paragraphs render.
+  const bodyText = lines.slice(firstIdx + 1).join("\n").replace(/^\n+/, "").trim();
+
+  const titleHtml = titleText
+    ? `<h2 style="font-size:1.35rem;font-weight:700;color:#111827;line-height:1.35;margin:0 0 14px 0;">${escapeHtml(
+        titleText,
+      )}</h2>`
+    : "";
+
+  const bodyHtml = bodyText
+    ? `<div style="font-size:15px;line-height:1.7;color:#374151;margin-top:0;">${parseMarkdown(
+        bodyText,
+      )}</div>`
+    : "";
+
+  return `${titleHtml}${bodyHtml}`;
+}
+
 function generateLocalContent(topic: string, tone: Tone, length: Length): string {
   const tLower = topic.toLowerCase();
 
@@ -773,6 +814,10 @@ export default function CreatePostModal({
     e.target.value = "";
   };
 
+  // ───────────────────────────────────────────────────────────────
+  // UPDATED: AI generation now formats first line as Title and the
+  // rest as Description, with consistent gaps between them.
+  // ───────────────────────────────────────────────────────────────
   const handleGenerateAI = async () => {
     if (!aiPrompt.trim()) return;
     setAiLoading(true);
@@ -802,9 +847,12 @@ export default function CreatePostModal({
         return;
       }
 
+      // Format: first line → Title, the rest → Description (with correct gaps)
+      const formattedHtml = formatAiContentAsTitleAndDescription(generated);
+
       const newContent = content
-        ? `${content}\n\n${generated}`
-        : generated;
+        ? `${content}<div style="height:16px;"></div>${formattedHtml}`
+        : formattedHtml;
 
       setContent(newContent);
 
@@ -1395,6 +1443,18 @@ export default function CreatePostModal({
                        className={`h-[calc(75vh-20rem)] min-h-[215px] overflow-y-auto px-4 pb-9 pt-4 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-gray-800 outline-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] ${
   contentError ? "ring-2 ring-red-200" : ""
 }`}
+onClick={(e) => {
+  const target = e.target as HTMLElement;
+
+  if (target.tagName === "A") {
+    e.preventDefault();
+    window.open(
+      (target as HTMLAnchorElement).href,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }
+}}
                       /> 
 
                       {/* Floating rewrite button — bottom-right of editor */}
@@ -1563,29 +1623,29 @@ export default function CreatePostModal({
                           autoFocus
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-purple-400"
                         />
-                        <div className="flex gap-3 justify-end">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowLinkPrompt(false);
-                              setLinkUrl("");
-                            }}
-                            className="px-4 py-2 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleLinkSubmit();
-                              setShowLinkPrompt(false);
-                              setLinkUrl("");
-                            }}
-                            className="px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700"
-                          >
-                            Add Link
-                          </button>
-                        </div>
+                       <div className="flex gap-2 justify-end">
+  <button
+    type="button"
+    onClick={() => {
+      setShowLinkPrompt(false);
+      setLinkUrl("");
+    }}
+    className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100"
+  >
+    Cancel
+  </button>
+  <button
+    type="button"
+    onClick={() => {
+      handleLinkSubmit();
+      setShowLinkPrompt(false);
+      setLinkUrl("");
+    }}
+    className="px-3 py-1.5 text-sm rounded-lg border border-purple-600 text-purple-600 bg-white hover:bg-purple-50"
+  >
+    Add Link
+  </button>
+</div>
                       </div>
                     </div>
                   )}
@@ -1855,5 +1915,3 @@ export default function CreatePostModal({
 
   return createPortal(modalContent, document.body);
 }
-
-
