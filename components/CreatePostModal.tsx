@@ -1,7 +1,6 @@
-
 import type { CreatePostInput } from "@/types/post";
 import {
-  AtSign,BarChart3,Braces,Calendar, ChevronDown, Clock,FileText,Globe,Image,Link,Link2,List,ListOrdered,MapPin,
+  AtSign,BarChart3,Braces,Calendar, CalendarDays, ChevronDown, Clock, Clock3,FileText,Globe,Image,Link,Link2,List,ListOrdered,MapPin,
   Minus,Plus,Redo2,RefreshCw,Sigma,Sparkles,Undo2,Video,Wand2,X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -428,6 +427,7 @@ export default function CreatePostModal({
   onSubmit,
   isLoading,
 }: CreatePostModalProps) {
+  const DRAFT_KEY = "tal:createPostDraft:v1";
   const [activeTab, setActiveTab] = useState<"write" | "preview">("write");
   const [content, setContent] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -489,6 +489,40 @@ export default function CreatePostModal({
     };
   }, [isOpen]);
 
+  // Restore draft when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    try {
+      if (typeof window === "undefined") return;
+      const raw = window.sessionStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as any;
+      // Restore parsed content and fields when present
+      if (parsed?.content) {
+        setContent(parsed.content || "");
+        // Ensure the editor DOM gets updated after mount — use a short delay
+        setTimeout(() => {
+          if (editorRef.current) {
+            editorRef.current.innerHTML = parsed.content || "";
+          }
+        }, 50);
+      }
+      if (parsed?.imageUrl) setImageUrl(parsed.imageUrl);
+      if (parsed?.pollQuestion) setPollQuestion(parsed.pollQuestion);
+      if (parsed?.pollOptions) setPollOptions(parsed.pollOptions);
+      if (parsed?.pollDuration) setPollDuration(parsed.pollDuration);
+      if (parsed?.eventName) setEventName(parsed.eventName);
+      if (parsed?.eventType) setEventType(parsed.eventType || "in-person");
+      if (parsed?.eventDate) setEventDate(parsed.eventDate);
+      if (parsed?.eventTime) setEventTime(parsed.eventTime);
+      if (parsed?.eventLocation) setEventLocation(parsed.eventLocation);
+      if (parsed?.eventLink) setEventLink(parsed.eventLink);
+      if (parsed?.activeMediaComposer) setActiveMediaComposer(parsed.activeMediaComposer);
+    } catch (e) {
+      // ignore parse errors
+    }
+  }, [isOpen]);
+
   useEffect(() => {
     clearImageTimer();
     if (!imageUrl.trim()) return;
@@ -507,6 +541,29 @@ export default function CreatePostModal({
     return () => clearImageTimer();
   }, [imageUrl, retryKey]);
 
+  const saveDraft = () => {
+    try {
+      if (typeof window === "undefined") return;
+      const draft = {
+        content: editorRef.current?.innerHTML ?? content,
+        imageUrl,
+        pollQuestion,
+        pollOptions,
+        pollDuration,
+        eventName,
+        eventType,
+        eventDate,
+        eventTime,
+        eventLocation,
+        eventLink,
+        activeMediaComposer,
+      };
+      window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    } catch (e) {
+      // ignore
+    }
+  };
+
   const syncContentFromEditor = () => {
     const el = editorRef.current;
     if (!el) return;
@@ -514,6 +571,8 @@ export default function CreatePostModal({
     setContentError(false);
     setRewriteError("");
     setShowRewriteMenu(false);
+    // persist draft when editor content changes
+    saveDraft();
   };
 
   const getEditorText = () => editorRef.current?.innerText.trim() ?? "";
@@ -860,6 +919,9 @@ export default function CreatePostModal({
         editorRef.current.innerHTML = newContent;
       }
 
+      // persist AI-generated draft so it survives navigation
+      saveDraft();
+
       setShowAiPanel(false);
       setAiPrompt("");
     } catch (err) {
@@ -998,7 +1060,52 @@ export default function CreatePostModal({
     setEventLink("");
     savedSelection.current = null;
     if (editorRef.current) editorRef.current.innerHTML = "";
+    try {
+      if (typeof window !== "undefined") window.sessionStorage.removeItem(DRAFT_KEY);
+    } catch (e) {}
   };
+
+  // Persist draft on unmount, beforeunload, and visibility changes
+  useEffect(() => {
+    const onBeforeUnload = () => saveDraft();
+    const onVisibility = () => {
+      if (document.hidden) saveDraft();
+    };
+    try {
+      window.addEventListener("beforeunload", onBeforeUnload);
+      document.addEventListener("visibilitychange", onVisibility);
+    } catch (e) {}
+    return () => {
+      saveDraft();
+      try {
+        window.removeEventListener("beforeunload", onBeforeUnload);
+        document.removeEventListener("visibilitychange", onVisibility);
+      } catch (e) {}
+    };
+  }, []);
+
+  // Watchdog: while modal is open, ensure editor innerHTML matches `content`.
+  useEffect(() => {
+    if (!isOpen) return;
+    let stopped = false;
+    const checkAndRestore = () => {
+      if (stopped) return;
+      try {
+        if (!editorRef.current) return;
+        const elHtml = editorRef.current.innerHTML || "";
+        if ((content || "").trim() && !elHtml.trim()) {
+          editorRef.current.innerHTML = content || "";
+        }
+      } catch (e) {}
+    };
+    // run immediately and then on interval to catch navigation remounts
+    checkAndRestore();
+    const id = setInterval(checkAndRestore, 250);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  }, [isOpen, content]);
 
   const handleClose = () => {
     handleReset();
@@ -1111,11 +1218,25 @@ export default function CreatePostModal({
   useEffect(() => {
     if (activeTab !== "write" || !editorRef.current) return;
 
-    if (!editorRef.current.innerHTML.trim()) {
-      editorRef.current.innerHTML =
-        content || '<span class="text-gray-400">Share your thoughts.</span>';
+    // Ensure editor shows current content whenever write tab is active.
+    const currentHtml = editorRef.current.innerHTML || "";
+    if ((content || "").trim() && currentHtml.trim() !== (content || "").trim()) {
+      editorRef.current.innerHTML = content || "";
+    }
+    // If there's no content, show the placeholder
+    if (!content && !currentHtml.trim()) {
+      editorRef.current.innerHTML = '<span class="text-gray-400">Share your thoughts.</span>';
     }
   }, [activeTab]);
+
+  // Keep editor in sync when content changes while write tab is active
+  useEffect(() => {
+    if (activeTab !== "write" || !editorRef.current) return;
+    const currentHtml = editorRef.current.innerHTML || "";
+    if ((content || "").trim() && currentHtml.trim() !== (content || "").trim()) {
+      editorRef.current.innerHTML = content || "";
+    }
+  }, [content, activeTab]);
 
   if (!isOpen) return null;
 
@@ -1171,12 +1292,12 @@ export default function CreatePostModal({
                       Back
                     </button>
                     <div className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-                      {activeMediaComposer === "poll" ? (
+                          {activeMediaComposer === "poll" ? (
                         <>
                           <BarChart3 className="w-5 h-5 text-purple-600" />
                           Create Poll
                         </>
-                      ) : (
+                          ) : (
                         <>
                           <Calendar className="w-5 h-5 text-purple-600" />
                           Create Event
@@ -1199,7 +1320,7 @@ export default function CreatePostModal({
                         value={pollQuestion}
                         onChange={(e) => setPollQuestion(e.target.value)}
                         placeholder="Ask a question..."
-                        className="w-full px-4 py-3 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm"
                       />
                       {pollOptions.map((option, index) => (
                         <input
@@ -1214,13 +1335,13 @@ export default function CreatePostModal({
                             )
                           }
                           placeholder={`Option ${index + 1}`}
-                          className="w-full px-4 py-3 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm"
                         />
                       ))}
                       <button
                         type="button"
                         onClick={() => setPollOptions((current) => [...current, ""])}
-                        className="w-full h-11 rounded-md border border-gray-200 bg-white hover:bg-gray-50 shadow-sm flex items-center justify-center gap-2 text-gray-800"
+                        className="w-full h-10 rounded-md border border-gray-200 bg-white hover:bg-gray-50 shadow-sm flex items-center justify-center gap-2 text-gray-800"
                       >
                         <Plus className="w-5 h-5" />
                         Add option
@@ -1228,7 +1349,7 @@ export default function CreatePostModal({
                       <select
                         value={pollDuration}
                         onChange={(e) => setPollDuration(e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm"
                       >
                         <option>1 day</option>
                         <option>3 days</option>
@@ -1244,19 +1365,19 @@ export default function CreatePostModal({
                         value={eventName}
                         onChange={(e) => setEventName(e.target.value)}
                         placeholder="Event name *"
-                        className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                        className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm"
                       />
                       <div className="flex flex-wrap gap-2">
                         {[
-                          { value: "in-person" as const, label: "In-person", icon: <MapPin className="w-5 h-5" /> },
-                          { value: "virtual" as const, label: "Virtual", icon: <Link className="w-5 h-5" /> },
-                          { value: "hybrid" as const, label: "Hybrid", icon: <Globe className="w-5 h-5" /> },
+                          { value: "in-person" as const, label: "In-person", icon: <MapPin className="w-3.5 h-3.5" /> },
+                          { value: "virtual" as const, label: "Virtual", icon: <Link className="w-3.5 h-3.5" /> },
+                          { value: "hybrid" as const, label: "Hybrid", icon: <Globe className="w-3.5 h-3.5" /> },
                         ].map((type) => (
                           <button
                             key={type.value}
                             type="button"
                             onClick={() => setEventType(type.value)}
-                            className={`inline-flex h-11 items-center gap-2 rounded-md border px-4 font-semibold shadow-sm transition-colors ${
+                            className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-sm font-medium shadow-sm transition-colors ${
                               eventType === type.value
                                 ? "border-purple-600 bg-purple-600 text-white"
                                 : "border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
@@ -1275,9 +1396,10 @@ export default function CreatePostModal({
                               type="date"
                               value={eventDate}
                               onChange={(e) => setEventDate(e.target.value)}
-                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                              className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none"
+                              style={{ WebkitAppearance: "none", MozAppearance: "textfield", appearance: "none" }}
                             />
-                            <Calendar className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
+                            <Calendar className="pointer-events-none absolute right-3 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-500" />
                           </div>
                         </div>
                         <div>
@@ -1287,9 +1409,10 @@ export default function CreatePostModal({
                               type="time"
                               value={eventTime}
                               onChange={(e) => setEventTime(e.target.value)}
-                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                              className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none"
+                              style={{ WebkitAppearance: "none", MozAppearance: "textfield", appearance: "none" }}
                             />
-                            <Clock className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
+                            <Clock3 className="pointer-events-none absolute right-3 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-500" />
                           </div>
                         </div>
                       </div>
@@ -1301,7 +1424,7 @@ export default function CreatePostModal({
                             value={eventLocation}
                             onChange={(e) => setEventLocation(e.target.value)}
                             placeholder="Add location *"
-                            className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                            className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm"
                           />
                         </div>
                       )}
@@ -1313,7 +1436,7 @@ export default function CreatePostModal({
                             value={eventLink}
                             onChange={(e) => setEventLink(e.target.value)}
                             placeholder="Add virtual meeting link *"
-                            className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                            className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm"
                           />
                         </div>
                       )}
@@ -1708,19 +1831,19 @@ onClick={(e) => {
                         value={eventName}
                         onChange={(e) => setEventName(e.target.value)}
                         placeholder="Event name *"
-                        className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                        className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm"
                       />
                       <div className="mt-5 flex flex-wrap gap-2">
                         {[
-                          { value: "in-person" as const, label: "In-person", icon: <MapPin className="w-5 h-5" /> },
-                          { value: "virtual" as const, label: "Virtual", icon: <Link className="w-5 h-5" /> },
-                          { value: "hybrid" as const, label: "Hybrid", icon: <Globe className="w-5 h-5" /> },
+                          { value: "in-person" as const, label: "In-person", icon: <MapPin className="w-3.5 h-3.5" /> },
+                          { value: "virtual" as const, label: "Virtual", icon: <Link className="w-3.5 h-3.5" /> },
+                          { value: "hybrid" as const, label: "Hybrid", icon: <Globe className="w-3.5 h-3.5" /> },
                         ].map((type) => (
                           <button
                             key={type.value}
                             type="button"
                             onClick={() => setEventType(type.value)}
-                            className={`inline-flex h-11 items-center gap-2 rounded-md border px-4 font-semibold shadow-sm transition-colors ${
+                            className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-sm font-medium shadow-sm transition-colors ${
                               eventType === type.value
                                 ? "border-purple-600 bg-purple-600 text-white"
                                 : "border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
@@ -1739,9 +1862,10 @@ onClick={(e) => {
                               type="date"
                               value={eventDate}
                               onChange={(e) => setEventDate(e.target.value)}
-                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                              className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none"
+                              style={{ WebkitAppearance: "none", MozAppearance: "textfield", appearance: "none" }}
                             />
-                            <Calendar className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
+                            <CalendarDays className="pointer-events-none absolute right-3 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-500" />
                           </div>
                         </div>
                         <div>
@@ -1751,9 +1875,10 @@ onClick={(e) => {
                               type="time"
                               value={eventTime}
                               onChange={(e) => setEventTime(e.target.value)}
-                              className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                              className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none"
+                              style={{ WebkitAppearance: "none", MozAppearance: "textfield", appearance: "none" }}
                             />
-                            <Clock className="pointer-events-none absolute right-4 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-800" />
+                            <Clock3 className="pointer-events-none absolute right-3 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-500" />
                           </div>
                         </div>
                       </div>
@@ -1765,7 +1890,7 @@ onClick={(e) => {
                             value={eventLocation}
                             onChange={(e) => setEventLocation(e.target.value)}
                             placeholder="Add location *"
-                            className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                            className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm"
                           />
                         </div>
                       )}
@@ -1777,7 +1902,7 @@ onClick={(e) => {
                             value={eventLink}
                             onChange={(e) => setEventLink(e.target.value)}
                             placeholder="Add virtual meeting link *"
-                            className="w-full px-4 py-3 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-[15px]"
+                            className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm"
                           />
                         </div>
                       )}
