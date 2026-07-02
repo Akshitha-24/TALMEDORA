@@ -1,7 +1,9 @@
+"use client";
+
 import type { CreatePostInput } from "@/types/post";
 import {
-  AtSign,BarChart3,Braces,Calendar, CalendarDays, ChevronDown, Clock, Clock3,FileText,Globe,Image,Link,Link2,List,ListOrdered,MapPin,
-  Minus,Plus,Redo2,RefreshCw,Sigma,Sparkles,Undo2,Video,Wand2,X,
+  AtSign,BarChart3,Braces,Calendar, CalendarDays, ChevronDown, Clock, Clock3,Crop,FileText,Filter,FlipHorizontal,FlipVertical,Globe,Image,Link,Link2,List,ListOrdered,MapPin,
+  Minus,Plus,Redo2,RefreshCw,RotateCcw,RotateCw,Sigma,Sparkles,Undo2,Video,Wand2,X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -28,8 +30,9 @@ type FormatAction =
 type Tone = "professional" | "casual" | "creative" | "formal";
 type Length = "short" | "medium" | "long";
 type MediaComposer = "poll" | "event" | null;
-type EventType = "in-person" | "virtual" | "hybrid";
+type EventType = "in-person" | "virtual";
 type RewriteAction = "polish" | "shorter" | "longer" | "tone";
+type ImageEditMode = "crop" | "filters";
 
 const formatMap: Record<
   FormatAction,
@@ -460,9 +463,24 @@ export default function CreatePostModal({
   const [eventTime, setEventTime] = useState("");
   const [eventLocation, setEventLocation] = useState("");
   const [eventLink, setEventLink] = useState("");
+  const [eventCoverUrl, setEventCoverUrl] = useState("");
+  const [pendingImageUrl, setPendingImageUrl] = useState("");
+  const [pendingImageName, setPendingImageName] = useState("");
+  const [isImageEditorOpen, setIsImageEditorOpen] = useState(false);
+  const [showImageEditTools, setShowImageEditTools] = useState(false);
+  const [imageEditMode, setImageEditMode] = useState<ImageEditMode>("crop");
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imageStraighten, setImageStraighten] = useState(0);
+  const [imageRotation, setImageRotation] = useState(0);
+  const [imageFlipX, setImageFlipX] = useState(1);
+  const [imageFlipY, setImageFlipY] = useState(1);
+  const [imageFilter, setImageFilter] = useState("none");
 
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const eventCoverInputRef = useRef<HTMLInputElement>(null);
+  const eventDateInputRef = useRef<HTMLInputElement>(null);
+  const eventTimeInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const savedSelection = useRef<Range | null>(null);
@@ -517,6 +535,7 @@ export default function CreatePostModal({
       if (parsed?.eventTime) setEventTime(parsed.eventTime);
       if (parsed?.eventLocation) setEventLocation(parsed.eventLocation);
       if (parsed?.eventLink) setEventLink(parsed.eventLink);
+      if (parsed?.eventCoverUrl) setEventCoverUrl(parsed.eventCoverUrl);
       if (parsed?.activeMediaComposer) setActiveMediaComposer(parsed.activeMediaComposer);
     } catch (e) {
       // ignore parse errors
@@ -556,6 +575,7 @@ export default function CreatePostModal({
         eventTime,
         eventLocation,
         eventLink,
+        eventCoverUrl,
         activeMediaComposer,
       };
       window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
@@ -737,6 +757,22 @@ export default function CreatePostModal({
     fileInputRef.current?.click();
   };
 
+  const handleEventCoverPhotoClick = () => {
+    eventCoverInputRef.current?.click();
+  };
+
+  const toggleNativePicker = (input: HTMLInputElement | null) => {
+    if (!input) return;
+    if (document.activeElement === input) {
+      input.blur();
+      return;
+    }
+
+    input.focus();
+    const pickerInput = input as HTMLInputElement & { showPicker?: () => void };
+    pickerInput.showPicker?.();
+  };
+
   const handleInsertVideoClick = () => {
     videoInputRef.current?.click();
   };
@@ -827,10 +863,11 @@ export default function CreatePostModal({
     const name = eventName.trim();
     const location = eventLocation.trim();
     const link = eventLink.trim();
-    if (!name && !eventDate && !eventTime && !location && !link) return "";
+    if (!name && !eventDate && !eventTime && !location && !link && !eventCoverUrl) return "";
 
     return `
       <div class="my-3 rounded-xl border border-purple-200 bg-purple-50 p-4">
+        ${eventCoverUrl ? `<img src="${eventCoverUrl}" alt="Event cover" class="mb-4 h-56 w-full rounded-xl object-cover bg-gray-100" />` : ""}
         <p class="font-semibold text-purple-700">Event</p>
         <p class="mt-2 text-lg font-semibold text-gray-900">${escapeHtml(name || "Untitled event")}</p>
         <p class="mt-1 text-sm text-gray-700">${escapeHtml(eventType)}</p>
@@ -865,12 +902,67 @@ export default function CreatePostModal({
     }
     clearImageTimer();
     const objectUrl = URL.createObjectURL(file);
-    setImageUrl(objectUrl);
-    setImageLoaded(false);
+    setPendingImageUrl(objectUrl);
+    setPendingImageName(file.name);
+    setIsImageEditorOpen(true);
+    setShowImageEditTools(false);
+    setImageEditMode("crop");
+    setImageZoom(1);
+    setImageStraighten(0);
+    setImageRotation(0);
+    setImageFlipX(1);
+    setImageFlipY(1);
+    setImageFilter("none");
     setImageError(false);
     setImageErrorMsg("");
-    setRetryKey((k) => k + 1);
     e.target.value = "";
+  };
+
+  const cancelImageEditor = () => {
+    setPendingImageUrl("");
+    setPendingImageName("");
+    setIsImageEditorOpen(false);
+    setShowImageEditTools(false);
+    setImageZoom(1);
+    setImageStraighten(0);
+    setImageRotation(0);
+    setImageFlipX(1);
+    setImageFlipY(1);
+    setImageFilter("none");
+  };
+
+  const applyEditedImage = async () => {
+    if (!pendingImageUrl) return;
+    const editedImageUrl = await new Promise<string>((resolve) => {
+      const img = new globalThis.Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const width = img.naturalWidth || img.width;
+        const height = img.naturalHeight || img.height;
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(pendingImageUrl);
+          return;
+        }
+
+        ctx.filter = imageFilter;
+        ctx.translate(width / 2, height / 2);
+        ctx.rotate(((imageStraighten + imageRotation) * Math.PI) / 180);
+        ctx.scale(imageZoom * imageFlipX, imageZoom * imageFlipY);
+        ctx.drawImage(img, -width / 2, -height / 2, width, height);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.onerror = () => resolve(pendingImageUrl);
+      img.src = pendingImageUrl;
+    });
+
+    setEventCoverUrl(editedImageUrl);
+    setPendingImageUrl("");
+    setPendingImageName("");
+    setIsImageEditorOpen(false);
+    setShowImageEditTools(false);
   };
 
   // ───────────────────────────────────────────────────────────────
@@ -1058,6 +1150,18 @@ export default function CreatePostModal({
     setEventTime("");
     setEventLocation("");
     setEventLink("");
+    setEventCoverUrl("");
+    setPendingImageUrl("");
+    setPendingImageName("");
+    setIsImageEditorOpen(false);
+    setShowImageEditTools(false);
+    setImageEditMode("crop");
+    setImageZoom(1);
+    setImageStraighten(0);
+    setImageRotation(0);
+    setImageFlipX(1);
+    setImageFlipY(1);
+    setImageFilter("none");
     savedSelection.current = null;
     if (editorRef.current) editorRef.current.innerHTML = "";
     try {
@@ -1283,37 +1387,168 @@ export default function CreatePostModal({
             {activeTab === "write" ? (
               activeMediaComposer ? (
                 <div className="min-h-[calc(75vh-10rem)]">
-                  <div className="mb-5 flex items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setActiveMediaComposer(null)}
-                      className="inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium text-gray-600 hover:bg-gray-100"
-                    >
-                      Back
-                    </button>
-                    <div className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-                          {activeMediaComposer === "poll" ? (
-                        <>
-                          <BarChart3 className="w-5 h-5 text-purple-600" />
-                          Create Poll
-                        </>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    ref={eventCoverInputRef}
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
+
+                  {isImageEditorOpen ? (
+                    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={cancelImageEditor}
+                            className="flex h-9 w-9 items-center justify-center rounded-full text-gray-700 hover:bg-gray-100"
+                            aria-label="Back to event"
+                          >
+                            <ChevronDown className="h-5 w-5 rotate-90" />
+                          </button>
+                          <h3 className="text-lg font-semibold text-gray-900">Edit</h3>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={cancelImageEditor}
+                          className="flex h-9 w-9 items-center justify-center rounded-full text-gray-700 hover:bg-gray-100"
+                          aria-label="Close image editor"
+                        >
+                          <X className="h-5 w-5" />
+                        </button>
+                      </div>
+
+                      <div className="bg-neutral-700 px-4 py-5">
+                        <div className="mx-auto flex h-72 max-w-full items-center justify-center overflow-hidden bg-black">
+                          {pendingImageUrl && (
+                            <img
+                              src={pendingImageUrl}
+                              alt={pendingImageName || "Selected cover"}
+                              className="max-h-full max-w-full object-contain"
+                              style={{
+                                filter: imageFilter,
+                                transform: `scale(${imageZoom * imageFlipX}, ${imageZoom * imageFlipY}) rotate(${imageStraighten + imageRotation}deg)`,
+                              }}
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      {showImageEditTools && (
+                        <div className="bg-white px-5 py-4">
+                          <div className="flex items-center justify-between gap-4 border-b border-gray-200">
+                            <div className="flex items-center gap-8">
+                              {[
+                                { value: "crop" as const, label: "Crop", icon: <Crop className="h-5 w-5" /> },
+                                { value: "filters" as const, label: "Filters", icon: <Filter className="h-5 w-5" /> },
+                              ].map((mode) => (
+                                <button
+                                  key={mode.value}
+                                  type="button"
+                                  onClick={() => setImageEditMode(mode.value)}
+                                  className={`inline-flex items-center gap-1.5 border-b-2 px-1 pb-3 text-sm font-semibold transition-colors ${
+                                    imageEditMode === mode.value
+                                      ? "border-emerald-600 text-emerald-700"
+                                      : "border-transparent text-gray-600 hover:text-gray-900"
+                                  }`}
+                                >
+                                  {mode.icon}
+                                  {mode.label}
+                                </button>
+                              ))}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleEventCoverPhotoClick}
+                              className="mb-3 rounded-full border border-gray-400 bg-white px-4 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                            >
+                              Change photo
+                            </button>
+                          </div>
+
+                          {imageEditMode === "crop" ? (
+                            <div className="mt-5 grid gap-5 sm:grid-cols-[1fr_auto] sm:items-center">
+                              <div className="grid gap-5 sm:grid-cols-2">
+                                <label className="block text-sm font-medium text-gray-700">
+                                  Zoom
+                                  <div className="mt-3 flex items-center gap-3">
+                                    <Minus className="h-4 w-4 text-gray-500" />
+                                    <input
+                                      type="range"
+                                      min="1"
+                                      max="2"
+                                      step="0.01"
+                                      value={imageZoom}
+                                      onChange={(e) => setImageZoom(Number(e.target.value))}
+                                      className="w-full accent-emerald-600"
+                                    />
+                                    <Plus className="h-4 w-4 text-gray-500" />
+                                  </div>
+                                </label>
+                                <label className="block text-sm font-medium text-gray-700">
+                                  Straighten
+                                  <div className="mt-3 flex items-center gap-3">
+                                    <Minus className="h-4 w-4 text-gray-500" />
+                                    <input
+                                      type="range"
+                                      min="-45"
+                                      max="45"
+                                      step="1"
+                                      value={imageStraighten}
+                                      onChange={(e) => setImageStraighten(Number(e.target.value))}
+                                      className="w-full accent-emerald-600"
+                                    />
+                                    <Plus className="h-4 w-4 text-gray-500" />
+                                  </div>
+                                </label>
+                              </div>
+                              <div className="flex items-center gap-2 sm:justify-end">
+                                <button type="button" onClick={() => setImageRotation((value) => value - 90)} className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-400 text-gray-700 hover:bg-gray-50" aria-label="Rotate left">
+                                  <RotateCcw className="h-4 w-4" />
+                                </button>
+                                <button type="button" onClick={() => setImageRotation((value) => value + 90)} className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-400 text-gray-700 hover:bg-gray-50" aria-label="Rotate right">
+                                  <RotateCw className="h-4 w-4" />
+                                </button>
+                                <button type="button" onClick={() => setImageFlipX((value) => value * -1)} className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-400 text-gray-700 hover:bg-gray-50" aria-label="Flip horizontal">
+                                  <FlipHorizontal className="h-4 w-4" />
+                                </button>
+                                <button type="button" onClick={() => setImageFlipY((value) => value * -1)} className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-400 text-gray-700 hover:bg-gray-50" aria-label="Flip vertical">
+                                  <FlipVertical className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
                           ) : (
-                        <>
-                          <Calendar className="w-5 h-5 text-purple-600" />
-                          Create Event
-                        </>
+                            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                              {[
+                                { label: "Original", value: "none" },
+                                { label: "Warm", value: "sepia(0.25) saturate(1.25) contrast(1.04)" },
+                                { label: "Cool", value: "saturate(1.15) hue-rotate(350deg) brightness(1.03)" },
+                                { label: "Mono", value: "grayscale(1) contrast(1.08)" },
+                                { label: "Vivid", value: "saturate(1.55) contrast(1.08)" },
+                                { label: "Soft", value: "brightness(1.08) contrast(0.92) saturate(0.9)" },
+                                { label: "Fade", value: "sepia(0.18) contrast(0.9) brightness(1.06)" },
+                                { label: "Punch", value: "contrast(1.18) saturate(1.2)" },
+                              ].map((preset) => (
+                                <button
+                                  key={preset.label}
+                                  type="button"
+                                  onClick={() => setImageFilter(preset.value)}
+                                  className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                                    imageFilter === preset.value
+                                      ? "border-emerald-600 bg-emerald-50 text-emerald-700"
+                                      : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                                  }`}
+                                >
+                                  {preset.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setActiveMediaComposer(null)}
-                      className="inline-flex h-9 items-center rounded-lg border border-purple-300 bg-white px-4 text-sm font-medium text-purple-600 shadow-sm hover:bg-purple-50"
-                    >
-                      Done
-                    </button>
-                  </div>
-
-                  {activeMediaComposer === "poll" ? (
+                  ) : activeMediaComposer === "poll" ? (
                     <div className="space-y-4">
                       <input
                         type="text"
@@ -1360,18 +1595,60 @@ export default function CreatePostModal({
                     </div>
                   ) : (
                     <div className="space-y-5">
-                      <input
-                        type="text"
-                        value={eventName}
-                        onChange={(e) => setEventName(e.target.value)}
-                        placeholder="Event name *"
-                        className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm"
-                      />
+                     <div className="mb-5">
+  <div
+    onClick={handleEventCoverPhotoClick}
+    className="relative w-full h-80 overflow-hidden rounded-xl border border-gray-300 bg-gray-100 cursor-pointer group"
+  >
+    {eventCoverUrl ? (
+      <>
+        <img
+          src={eventCoverUrl}
+          alt="Event cover"
+          className="h-full w-full object-cover"
+        />
+
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+          <span className="opacity-0 group-hover:opacity-100 transition-opacity rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-800 shadow">
+            Change cover image
+          </span>
+        </div>
+      </>
+    ) : (
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-md">
+          <Image className="h-7 w-7 text-gray-600" />
+        </div>
+
+        <p className="text-lg font-medium text-gray-900">
+          Upload cover image
+        </p>
+
+        <p className="mt-1 text-sm text-gray-500">
+          Minimum width 480 pixels, 16:9 recommended
+        </p>
+      </div>
+    )}
+  </div>
+
+  <div className="mt-4">
+    <label htmlFor="event-title" className="block text-sm text-gray-500 mb-2">
+      Event title
+    </label>
+    <input
+      id="event-title"
+      type="text"
+      value={eventName}
+      onChange={(e) => setEventName(e.target.value)}
+      placeholder="Add event title"
+      className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm"
+    />
+  </div>
+</div>
                       <div className="flex flex-wrap gap-2">
                         {[
                           { value: "in-person" as const, label: "In-person", icon: <MapPin className="w-3.5 h-3.5" /> },
                           { value: "virtual" as const, label: "Virtual", icon: <Link className="w-3.5 h-3.5" /> },
-                          { value: "hybrid" as const, label: "Hybrid", icon: <Globe className="w-3.5 h-3.5" /> },
                         ].map((type) => (
                           <button
                             key={type.value}
@@ -1393,30 +1670,48 @@ export default function CreatePostModal({
                           <label className="block text-sm text-gray-500 mb-1">Date *</label>
                           <div className="relative">
                             <input
+                              ref={eventDateInputRef}
                               type="date"
                               value={eventDate}
                               onChange={(e) => setEventDate(e.target.value)}
-                              className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none"
+                              className="w-full px-3 py-2 pr-10 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none [&::-webkit-calendar-picker-indicator]:opacity-0"
                               style={{ WebkitAppearance: "none", MozAppearance: "textfield", appearance: "none" }}
                             />
-                            <Calendar className="pointer-events-none absolute right-3 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-500" />
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => toggleNativePicker(eventDateInputRef.current)}
+                              className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-500 hover:bg-purple-50"
+                              aria-label="Toggle date picker"
+                            >
+                              <CalendarDays className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
                         <div>
                           <label className="block text-sm text-gray-500 mb-1">Time *</label>
                           <div className="relative">
                             <input
+                              ref={eventTimeInputRef}
                               type="time"
                               value={eventTime}
                               onChange={(e) => setEventTime(e.target.value)}
-                              className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none"
+                              className="w-full px-3 py-2 pr-10 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none [&::-webkit-calendar-picker-indicator]:opacity-0"
                               style={{ WebkitAppearance: "none", MozAppearance: "textfield", appearance: "none" }}
                             />
-                            <Clock3 className="pointer-events-none absolute right-3 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-500" />
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => toggleNativePicker(eventTimeInputRef.current)}
+                              className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-500 hover:bg-purple-50"
+                              aria-label="Toggle time picker"
+                            >
+                              <Clock3 className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
                       </div>
-                      {(eventType === "in-person" || eventType === "hybrid") && (
+                      {eventType === "in-person" && (
                         <div className="flex items-center gap-3">
                           <MapPin className="w-5 h-5 text-gray-500 shrink-0" />
                           <input
@@ -1428,7 +1723,7 @@ export default function CreatePostModal({
                           />
                         </div>
                       )}
-                      {(eventType === "virtual" || eventType === "hybrid") && (
+                      {eventType === "virtual" && (
                         <div className="flex items-center gap-3">
                           <Link className="w-5 h-5 text-gray-500 shrink-0" />
                           <input
@@ -1826,6 +2121,16 @@ onClick={(e) => {
                         <Calendar className="w-4 h-4" />
                         Create Event
                       </div>
+                      <div className="mb-4 flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handleInsertImageClick}
+                          className="inline-flex items-center gap-2 rounded-md border border-purple-200 bg-white px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-50"
+                        >
+                          <Image className="w-4 h-4" />
+                          Upload image
+                        </button>
+                      </div>
                       <input
                         type="text"
                         value={eventName}
@@ -1837,7 +2142,6 @@ onClick={(e) => {
                         {[
                           { value: "in-person" as const, label: "In-person", icon: <MapPin className="w-3.5 h-3.5" /> },
                           { value: "virtual" as const, label: "Virtual", icon: <Link className="w-3.5 h-3.5" /> },
-                          { value: "hybrid" as const, label: "Hybrid", icon: <Globe className="w-3.5 h-3.5" /> },
                         ].map((type) => (
                           <button
                             key={type.value}
@@ -1859,30 +2163,48 @@ onClick={(e) => {
                           <label className="block text-sm text-gray-500 mb-1">Date *</label>
                           <div className="relative">
                             <input
+                              ref={eventDateInputRef}
                               type="date"
                               value={eventDate}
                               onChange={(e) => setEventDate(e.target.value)}
-                              className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none"
+                              className="w-full px-3 py-2 pr-10 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none [&::-webkit-calendar-picker-indicator]:opacity-0"
                               style={{ WebkitAppearance: "none", MozAppearance: "textfield", appearance: "none" }}
                             />
-                            <CalendarDays className="pointer-events-none absolute right-3 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-500" />
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => toggleNativePicker(eventDateInputRef.current)}
+                              className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-500 hover:bg-purple-50"
+                              aria-label="Toggle date picker"
+                            >
+                              <CalendarDays className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
                         <div>
                           <label className="block text-sm text-gray-500 mb-1">Time *</label>
                           <div className="relative">
                             <input
+                              ref={eventTimeInputRef}
                               type="time"
                               value={eventTime}
                               onChange={(e) => setEventTime(e.target.value)}
-                              className="w-full px-3 py-2 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none"
+                              className="w-full px-3 py-2 pr-10 border border-purple-200 rounded-md bg-white outline-none focus:ring-2 focus:ring-purple-400 text-sm appearance-none [&::-webkit-calendar-picker-indicator]:opacity-0"
                               style={{ WebkitAppearance: "none", MozAppearance: "textfield", appearance: "none" }}
                             />
-                            <Clock3 className="pointer-events-none absolute right-3 top-1/2 w-4 h-4 -translate-y-1/2 text-gray-500" />
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => toggleNativePicker(eventTimeInputRef.current)}
+                              className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-purple-500 hover:bg-purple-50"
+                              aria-label="Toggle time picker"
+                            >
+                              <Clock3 className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
                       </div>
-                      {(eventType === "in-person" || eventType === "hybrid") && (
+                      {eventType === "in-person" && (
                         <div className="mt-5 flex items-center gap-3">
                           <MapPin className="w-5 h-5 text-gray-500 shrink-0" />
                           <input
@@ -1894,7 +2216,7 @@ onClick={(e) => {
                           />
                         </div>
                       )}
-                      {(eventType === "virtual" || eventType === "hybrid") && (
+                      {eventType === "virtual" && (
                         <div className="mt-5 flex items-center gap-3">
                           <Link className="w-5 h-5 text-gray-500 shrink-0" />
                           <input
@@ -2003,35 +2325,65 @@ onClick={(e) => {
           </div>
 
           <div className="flex justify-end gap-3 px-7 py-5 border-t border-gray-200 bg-white shrink-0">
-            <button
-              type="button"
-              onClick={handleClose}
-              className="px-5 py-2.5 text-gray-700 hover:bg-gray-100 rounded-xl transition-colors text-[15px] font-medium"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab(activeTab === "write" ? "preview" : "write")}
-              className="px-5 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 transition-colors text-[15px] font-medium shadow-sm"
-            >
-              {activeTab === "write" ? "Preview" : "Edit"}
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={isSubmitting || isLoading}
-              className="px-6 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50 transition-colors text-[15px] font-medium shadow-sm"
-            >
-              {isLoading ? (
-                <span className="inline-flex items-center gap-2">
-                  <span className="inline-block w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                  Publishing...
-                </span>
-              ) : (
-                "Publish Post"
-              )}
-            </button>
+            {isImageEditorOpen ? (
+              <>
+                <button
+                  type="button"
+                  onClick={cancelImageEditor}
+                  className="px-5 py-2.5 text-gray-700 hover:bg-gray-100 rounded-xl transition-colors text-[15px] font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowImageEditTools((current) => !current)}
+                  className="px-5 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 transition-colors text-[15px] font-medium shadow-sm"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={applyEditedImage}
+                  className="px-6 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors text-[15px] font-medium shadow-sm"
+                >
+                  Apply
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={activeMediaComposer ? () => setActiveMediaComposer(null) : handleClose}
+                  className="px-5 py-2.5 text-gray-700 hover:bg-gray-100 rounded-xl transition-colors text-[15px] font-medium"
+                >
+                  {activeMediaComposer ? "Back" : "Cancel"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(activeTab === "write" ? "preview" : "write")}
+                  className="px-5 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 transition-colors text-[15px] font-medium shadow-sm"
+                >
+                  {activeTab === "write" ? "Preview" : "Edit"}
+                </button>
+                <button
+                  type="button"
+                  onClick={activeMediaComposer ? () => setActiveMediaComposer(null) : handleSubmit}
+                  disabled={activeMediaComposer ? false : isSubmitting || isLoading}
+                  className="px-6 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50 transition-colors text-[15px] font-medium shadow-sm"
+                >
+                  {activeMediaComposer ? (
+                    "Done"
+                  ) : isLoading ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="inline-block w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Publishing...
+                    </span>
+                  ) : (
+                    "Publish Post"
+                  )}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -2040,3 +2392,4 @@ onClick={(e) => {
 
   return createPortal(modalContent, document.body);
 }
+    

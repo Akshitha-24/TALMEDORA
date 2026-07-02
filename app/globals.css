@@ -11,6 +11,23 @@
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+.no-native-picker {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+.no-native-picker::-webkit-calendar-picker-indicator,
+.no-native-picker::-webkit-clear-button,
+.no-native-picker::-webkit-inner-spin-button,
+.no-native-picker::-webkit-outer-spin-button {
+  display: none !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 [contenteditable="true"] a {
   cursor: pointer;
 }

@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
+import dynamic from 'next/dynamic';
 import PostCard from '@/components/PostCard';
-import CreatePostModal from '@/components/CreatePostModal';
+const CreatePostModal = dynamic(() => import('@/components/CreatePostModal').then((m) => m.default), { ssr: false });
 import { usePosts } from '@/hooks/usePosts';
 import { CreatePostInput } from '@/types/post';
 
